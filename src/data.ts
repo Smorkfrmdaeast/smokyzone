@@ -53,6 +53,7 @@ export interface VideoClipItem {
   tag: string;
   views: string;
   artistOrTopic: string;
+  videoSrc?: string;
 }
 
 export interface SocialLink {

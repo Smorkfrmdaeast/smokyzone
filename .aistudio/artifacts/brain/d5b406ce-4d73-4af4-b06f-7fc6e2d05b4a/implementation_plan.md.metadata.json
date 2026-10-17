@@ -1,0 +1,6 @@
+{
+  "summary": "Architectural plan to give Smork complete real-time control over Smoky Zone from mobile phone or laptop:\n- Floating Lock Button & Fast Passcode Modal (smork2026 default, customizable)\n- Comprehensive Live Admin Studio: upload and replace any image, 5-second cultural short video clip, official playlist MP3, portfolio screenshot, or text label directly from device gallery or camera\n- Cloud Database & Media Persistence with local IndexedDB/LocalStorage instant caching so all visitors worldwide see updates in real time\n- Full touchscreen mobile ergonomics and responsive laptop layout adhering to Smoky Zone's electric cobalt aesthetic",
+  "updatedAt": "2026-10-17T17:31:36.476814902Z",
+  "requestFeedback": true,
+  "userFacing": true
+}
