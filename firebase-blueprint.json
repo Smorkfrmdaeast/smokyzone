@@ -1,0 +1,69 @@
+{
+  "entities": {
+    "SiteSettings": {
+      "title": "SiteSettings",
+      "description": "Global Smoky Zone configuration including labels, playlist, video clips, and photo references",
+      "type": "object",
+      "properties": {
+        "labels": {
+          "type": "object",
+          "description": "Customizable text labels across the site"
+        },
+        "playlist": {
+          "type": "array",
+          "description": "List of curated music tracks in Smoky Zone Official Selection"
+        },
+        "videoClips": {
+          "type": "array",
+          "description": "5-second cultural short video clip definitions"
+        },
+        "projectPhotos": {
+          "type": "object",
+          "description": "Map of project IDs to custom photo URLs"
+        },
+        "walkinPhoto": {
+          "type": "string",
+          "description": "Primary Walk-In visual portrait URL or Base64"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Timestamp of last modification"
+        }
+      }
+    },
+    "MediaItem": {
+      "title": "MediaItem",
+      "description": "Stored media assets such as photos, video clips, and audio tracks",
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Unique key identifier for the media slot"
+        },
+        "data": {
+          "type": "string",
+          "description": "Base64 data or media URL"
+        },
+        "mimeType": {
+          "type": "string",
+          "description": "MIME type of the media (image, video, audio)"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of update"
+        }
+      },
+      "required": ["key", "data"]
+    }
+  },
+  "firestore": {
+    "/site_content/{settingId}": {
+      "schema": "SiteSettings",
+      "description": "Global website configuration documents"
+    },
+    "/media_items/{mediaId}": {
+      "schema": "MediaItem",
+      "description": "Media uploads for images, video clips, and audio"
+    }
+  }
+}

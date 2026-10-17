@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Camera, RefreshCw, Check } from 'lucide-react';
-import { getStoredPhoto, setStoredPhoto, removeStoredPhoto, fileToBase64 } from '../utils/photoStorage';
+import { getStoredPhoto, setStoredPhoto, removeStoredPhoto, compressImageFile } from '../utils/photoStorage';
+import { getMediaItem } from '../utils/siteStore';
 
 interface ImageSlotProps {
   src: string;
@@ -29,18 +30,52 @@ export const ImageSlot: React.FC<ImageSlotProps> = ({
   const [isSavedToast, setIsSavedToast] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Load from local storage if storageKey is supplied
+  // Load from local/cloud storage and listen to live changes
   useEffect(() => {
-    if (storageKey) {
-      const saved = getStoredPhoto(storageKey);
-      if (saved && saved.trim() !== '') {
-        setStoredUrl(saved);
-        setSourceStage('stored');
-        return;
+    let isMounted = true;
+    const loadPhoto = () => {
+      if (storageKey) {
+        const saved = getStoredPhoto(storageKey);
+        if (saved && saved.trim() !== '') {
+          if (isMounted) {
+            setStoredUrl(saved);
+            setSourceStage('stored');
+          }
+          return;
+        }
+        // Async cloud fallback
+        getMediaItem(storageKey).then((cloudVal) => {
+          if (isMounted && cloudVal && cloudVal.trim() !== '') {
+            setStoredUrl(cloudVal);
+            setSourceStage('stored');
+          }
+        });
       }
-    }
-    setStoredUrl(null);
-    setSourceStage('src');
+      if (isMounted) {
+        setStoredUrl(null);
+        setSourceStage('src');
+      }
+    };
+    loadPhoto();
+
+    const handleMediaChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ key?: string; data?: string }>;
+      if (!customEvent.detail || customEvent.detail.key === storageKey) {
+        loadPhoto();
+      }
+    };
+
+    const handleConfigChange = () => {
+      loadPhoto();
+    };
+
+    window.addEventListener('smokyzone_media_change', handleMediaChange);
+    window.addEventListener('smokyzone_config_change', handleConfigChange);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('smokyzone_media_change', handleMediaChange);
+      window.removeEventListener('smokyzone_config_change', handleConfigChange);
+    };
   }, [storageKey, src]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -48,7 +83,7 @@ export const ImageSlot: React.FC<ImageSlotProps> = ({
     if (!file) return;
 
     try {
-      const base64 = await fileToBase64(file);
+      const base64 = await compressImageFile(file);
       setStoredUrl(base64);
       setSourceStage('stored');
       if (storageKey) {

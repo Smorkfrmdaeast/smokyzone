@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { SmorksTechLogo } from './components/SmorksTechLogo';
 import { AudioPlayer } from './components/AudioPlayer';
@@ -6,6 +6,16 @@ import { UnfilteredShowcase } from './components/UnfilteredShowcase';
 import { ProjectModal } from './components/ProjectModal';
 import { CelebrityVideoModal } from './components/CelebrityVideoModal';
 import { ImageSlot } from './components/ImageSlot';
+import { FloatingAdminButton } from './components/FloatingAdminButton';
+import { PasscodeModal } from './components/PasscodeModal';
+import { AdminPortalModal } from './components/AdminPortalModal';
+import { ShortVideoPreviewCard } from './components/ShortVideoPreviewCard';
+import {
+  SiteConfig,
+  getStoredConfig,
+  initCloudSync,
+  isUserAdminAuthenticated,
+} from './utils/siteStore';
 import {
   SMORK_BIO,
   TECH_SERVICES,
@@ -41,6 +51,10 @@ import {
 } from 'lucide-react';
 
 export const App: React.FC = () => {
+  const [siteConfig, setSiteConfig] = useState<SiteConfig>(getStoredConfig());
+  const [isPasscodeModalOpen, setIsPasscodeModalOpen] = useState(false);
+  const [isAdminPortalOpen, setIsAdminPortalOpen] = useState(false);
+
   const [selectedServiceCategory, setSelectedServiceCategory] = useState<'all' | 'web' | 'phone' | 'va'>('all');
   const [selectedProjectCategory, setSelectedProjectCategory] = useState<'all' | 'web' | 'phone' | 'va' | 'marketing'>('all');
   const [activeProject, setActiveProject] = useState<PortfolioProject | null>(null);
@@ -53,12 +67,61 @@ export const App: React.FC = () => {
   const [contactMessage, setContactMessage] = useState<string>('');
   const [formSubmitted, setFormSubmitted] = useState<boolean>(false);
 
+  useEffect(() => {
+    // Initialize Cloud Firestore real-time sync
+    const unsubscribeCloud = initCloudSync();
+
+    const handleConfigChange = (e: Event) => {
+      const custom = e as CustomEvent<SiteConfig>;
+      if (custom.detail) {
+        setSiteConfig(custom.detail);
+      } else {
+        setSiteConfig(getStoredConfig());
+      }
+    };
+
+    window.addEventListener('smokyzone_config_change', handleConfigChange);
+    return () => {
+      unsubscribeCloud();
+      window.removeEventListener('smokyzone_config_change', handleConfigChange);
+    };
+  }, []);
+
+  const handleOpenAdmin = () => {
+    if (isUserAdminAuthenticated()) {
+      setIsAdminPortalOpen(true);
+    } else {
+      setIsPasscodeModalOpen(true);
+    }
+  };
+
   const scrollTo = (id: string) => {
     const el = document.getElementById(id);
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
     }
   };
+
+  const activeWhatsAppNumber = siteConfig.labels.whatsappPhone || '+2348144087198';
+  const activeWhatsAppUrl = `https://wa.me/${activeWhatsAppNumber.replace(/[^0-9]/g, '')}`;
+  const activeEmail = siteConfig.labels.contactEmail || SMORK_BIO.email;
+  const tiktokLink = siteConfig.labels.tiktokUrl || 'https://tiktok.com/@Smorkfrmdaeast';
+  const youtubeLink = siteConfig.labels.youtubeUrl || 'https://youtube.com/@Smorkfrmdaeast';
+  const instagramLink = siteConfig.labels.instagramUrl || 'https://instagram.com/Smork_frmdaeast';
+  const xLink = siteConfig.labels.xTwitterUrl || 'https://x.com/Smorkfrmdaeast';
+
+  const activeProjectsList = siteConfig.projects?.length ? siteConfig.projects : PORTFOLIO_PROJECTS;
+  const activeThoughts = siteConfig.unfilteredThoughts?.length ? siteConfig.unfilteredThoughts : UNFILTERED_THOUGHTS;
+  const activeBioParagraphs = siteConfig.labels.aboutBio
+    ? siteConfig.labels.aboutBio.split('\n\n').filter((p) => p.trim().length > 0)
+    : SMORK_BIO.aboutStory;
+
+  useEffect(() => {
+    const titleText = siteConfig.labels.heroTitle
+      ? `SMOKY ZONE — ${siteConfig.labels.heroTitle} | Ifeanyi Emmanuel Nnamani`
+      : 'SMOKY ZONE — The Official Digital Home of SMORK | Ifeanyi Emmanuel Nnamani';
+    document.title = titleText;
+  }, [siteConfig.labels.heroTitle]);
 
   const handleContactSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +132,7 @@ export const App: React.FC = () => {
     const body = encodeURIComponent(
       `Name: ${contactName}\nEmail: ${contactEmail}\nCategory: ${contactCategory}\n\nMessage:\n${contactMessage}`
     );
-    window.open(`mailto:${SMORK_BIO.email}?subject=${subject}&body=${body}`, '_blank');
+    window.open(`mailto:${activeEmail}?subject=${subject}&body=${body}`, '_blank');
 
     setFormSubmitted(true);
     setTimeout(() => {
@@ -84,14 +147,14 @@ export const App: React.FC = () => {
     (s) => selectedServiceCategory === 'all' || s.category === selectedServiceCategory
   );
 
-  const filteredProjects = PORTFOLIO_PROJECTS.filter(
+  const filteredProjects = activeProjectsList.filter(
     (p) => selectedProjectCategory === 'all' || p.category === selectedProjectCategory
   );
 
   return (
     <div className="min-h-screen bg-[#050811] text-[#94a3b8] font-['Plus_Jakarta_Sans',sans-serif] relative selection:bg-[#1E90FF] selection:text-white">
       {/* Universal Top Bar */}
-      <Navbar onNavigate={scrollTo} />
+      <Navbar onNavigate={scrollTo} onOpenAdmin={handleOpenAdmin} />
 
       <main className="pt-20">
         {/* ========================================================================= */}
@@ -117,11 +180,11 @@ export const App: React.FC = () => {
               </div>
 
               <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.1] mb-6 font-['Outfit',sans-serif]">
-                ONE MIND. <span className="text-[#1E90FF]">DIFFERENT WORLDS.</span> ONE AUTHENTIC JOURNEY.
+                {siteConfig.labels.heroTitle || 'ONE MIND. DIFFERENT WORLDS. ONE AUTHENTIC JOURNEY.'}
               </h1>
 
               <p className="text-base sm:text-lg text-slate-300 leading-relaxed max-w-2xl mb-8">
-                {SMORK_BIO.subheadline}
+                {siteConfig.labels.heroSubtitle || SMORK_BIO.subheadline}
               </p>
 
               {/* Roles unboxed list */}
@@ -142,7 +205,7 @@ export const App: React.FC = () => {
               {/* Navigation & Direct Action CTAs */}
               <div className="flex flex-wrap items-center gap-3">
                 <a
-                  href={`${SMORK_BIO.whatsappUrl}?text=${encodeURIComponent(
+                  href={`${activeWhatsAppUrl}?text=${encodeURIComponent(
                     "Hello Smork, I'm reaching out from your official website regarding Phone Flashing & Software Resets / Web Development / Virtual Assistant."
                   )}`}
                   target="_blank"
@@ -179,7 +242,7 @@ export const App: React.FC = () => {
                 <span className="font-mono text-xs text-[#1E90FF]">{SMORK_BIO.handle}</span>
                 <div className="flex items-center gap-3">
                   <a
-                    href="https://tiktok.com/@Smorkfrmdaeast"
+                    href={tiktokLink}
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-[#1E90FF] transition-colors"
@@ -188,7 +251,7 @@ export const App: React.FC = () => {
                     <i className="fa-brands fa-tiktok" />
                   </a>
                   <a
-                    href="https://youtube.com/@Smorkfrmdaeast"
+                    href={youtubeLink}
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-[#1E90FF] transition-colors"
@@ -197,7 +260,7 @@ export const App: React.FC = () => {
                     <i className="fa-brands fa-youtube" />
                   </a>
                   <a
-                    href="https://instagram.com/Smork_frmdaeast"
+                    href={instagramLink}
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-[#1E90FF] transition-colors"
@@ -206,7 +269,7 @@ export const App: React.FC = () => {
                     <i className="fa-brands fa-instagram" />
                   </a>
                   <a
-                    href="https://wa.me/2349019071679"
+                    href={activeWhatsAppUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-[#1E90FF] transition-colors"
@@ -215,7 +278,7 @@ export const App: React.FC = () => {
                     <i className="fa-brands fa-whatsapp" />
                   </a>
                   <a
-                    href="https://x.com/Smorkfrmdaeast"
+                    href={xLink}
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-[#1E90FF] transition-colors"
@@ -276,7 +339,7 @@ export const App: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start text-left">
               {/* Left Column: Narrative Story */}
               <div className="lg:col-span-7 space-y-6 text-slate-300 leading-relaxed text-sm sm:text-base">
-                {SMORK_BIO.aboutStory.map((paragraph, idx) => (
+                {activeBioParagraphs.map((paragraph, idx) => (
                   <p key={idx}>{paragraph}</p>
                 ))}
 
@@ -341,7 +404,7 @@ export const App: React.FC = () => {
                     Ready to build a website, recover phone firmware, or collaborate on content?
                   </p>
                   <a
-                    href={SMORK_BIO.whatsappUrl}
+                    href={activeWhatsAppUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-400 hover:text-emerald-300"
@@ -556,7 +619,7 @@ export const App: React.FC = () => {
 
             {/* Unfiltered Thoughts & Reflections Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-              {UNFILTERED_THOUGHTS.map((item) => (
+              {activeThoughts.map((item) => (
                 <div
                   key={item.id}
                   className="p-6 rounded-2xl bg-[#0F1D38]/40 border border-white/5 flex flex-col justify-between"
@@ -640,7 +703,7 @@ export const App: React.FC = () => {
                 <div>
                   <div className="flex flex-wrap items-center gap-2 mb-4">
                     <span className="px-3 py-1 rounded-full bg-[#1E90FF]/20 text-[#1E90FF] text-xs font-mono border border-[#1E90FF]/40 font-semibold">
-                      🇳🇬 Eastern Nigeria Ambassador
+                      {siteConfig.labels.celebrityBadge || 'Drill Music'}
                     </span>
                     <span className="px-3 py-1 rounded-full bg-purple-900/40 text-purple-300 text-xs font-mono border border-purple-500/30">
                       🔥 Bronx Drill Analyst
@@ -655,7 +718,7 @@ export const App: React.FC = () => {
                   </h3>
 
                   <blockquote className="text-sm sm:text-base text-slate-300 italic border-l-2 border-[#1E90FF] pl-4 my-4 leading-relaxed">
-                    "{SMORK_BIO.celebrityQuote}"
+                    "{siteConfig.labels.celebrityQuote || SMORK_BIO.celebrityQuote}"
                   </blockquote>
 
                   <p className="text-xs sm:text-sm text-slate-400 leading-relaxed mb-4">
@@ -671,7 +734,7 @@ export const App: React.FC = () => {
 
                   <div className="flex flex-wrap items-center gap-2.5">
                     <a
-                      href="https://tiktok.com/@Smorkfrmdaeast"
+                      href={tiktokLink}
                       target="_blank"
                       rel="noreferrer"
                       className="px-4 py-2 rounded-xl bg-black/60 hover:bg-[#1E90FF] text-slate-200 hover:text-white border border-white/10 hover:border-[#1E90FF] text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer shadow"
@@ -681,7 +744,7 @@ export const App: React.FC = () => {
                     </a>
 
                     <a
-                      href="https://youtube.com/@Smorkfrmdaeast"
+                      href={youtubeLink}
                       target="_blank"
                       rel="noreferrer"
                       className="px-4 py-2 rounded-xl bg-black/60 hover:bg-red-600 text-slate-200 hover:text-white border border-white/10 hover:border-red-600 text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer shadow"
@@ -691,7 +754,7 @@ export const App: React.FC = () => {
                     </a>
 
                     <a
-                      href="https://instagram.com/Smork_frmdaeast"
+                      href={instagramLink}
                       target="_blank"
                       rel="noreferrer"
                       className="px-4 py-2 rounded-xl bg-black/60 hover:bg-pink-600 text-slate-200 hover:text-white border border-white/10 hover:border-pink-600 text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer shadow"
@@ -701,7 +764,7 @@ export const App: React.FC = () => {
                     </a>
 
                     <a
-                      href="https://wa.me/2349019071679"
+                      href={activeWhatsAppUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer shadow"
@@ -714,7 +777,7 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            {/* EXPANDED 11-TRACK MUSIC PLAYLIST & AUDIO VISUALIZER */}
+            {/* EXPANDED MUSIC PLAYLIST & AUDIO VISUALIZER */}
             <div className="mb-16">
               <div className="text-left mb-6 flex items-center justify-between">
                 <div>
@@ -723,7 +786,7 @@ export const App: React.FC = () => {
                   </span>
                   <h3 className="text-2xl sm:text-3xl font-extrabold text-white font-['Outfit',sans-serif] flex items-center gap-2">
                     <Music className="w-6 h-6 text-[#1E90FF]" />
-                    Smoky Zone Music Catalog (11 Tracks)
+                    Smoky Zone Music Catalog ({siteConfig.playlist.length} Tracks)
                   </h3>
                 </div>
                 <span className="text-xs font-mono text-slate-400 hidden sm:inline">
@@ -747,62 +810,17 @@ export const App: React.FC = () => {
                   </h3>
                 </div>
                 <span className="text-xs font-mono text-[#1E90FF]">
-                  Click to play short video
+                  0:05 Muted Loops · Tap for Sound
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-left">
-                {VIDEO_PREVIEW_CLIPS.map((clip) => (
-                  <div
+                {siteConfig.videoClips.map((clip) => (
+                  <ShortVideoPreviewCard
                     key={clip.id}
+                    clip={clip}
                     onClick={() => setActiveVideoClip(clip)}
-                    className="group rounded-2xl overflow-hidden bg-[#0F1D38]/60 border border-white/10 hover:border-[#1E90FF]/60 hover:bg-[#0F1D38] transition-all cursor-pointer flex flex-col justify-between shadow-lg"
-                  >
-                    <div className="h-48 bg-black relative overflow-hidden">
-                      <img
-                        src={clip.thumbnail}
-                        alt={clip.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 photo-natural"
-                      />
-
-                      {/* Play Button Overlay */}
-                      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 flex items-center justify-center transition-all">
-                        <div className="w-12 h-12 rounded-full bg-[#1E90FF] text-white flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
-                          <Play className="w-5 h-5 fill-white ml-0.5" />
-                        </div>
-                      </div>
-
-                      {/* Duration Tag */}
-                      <span className="absolute bottom-3 right-3 bg-black/80 text-white text-[11px] font-mono px-2 py-0.5 rounded backdrop-blur-sm">
-                        {clip.duration}
-                      </span>
-
-                      {/* Category Badge */}
-                      <span className="absolute top-3 left-3 bg-[#1E90FF]/90 text-white text-[10px] font-mono px-2 py-0.5 rounded shadow">
-                        {clip.tag}
-                      </span>
-                    </div>
-
-                    <div className="p-5 flex-1 flex flex-col justify-between">
-                      <div>
-                        <div className="flex items-center justify-between text-[11px] font-mono text-[#1E90FF] mb-1">
-                          <span>{clip.artistOrTopic}</span>
-                          <span className="text-slate-400">{clip.views}</span>
-                        </div>
-                        <h4 className="text-base font-bold text-white mb-2 font-['Outfit',sans-serif] group-hover:text-[#1E90FF] transition-colors leading-snug">
-                          {clip.title}
-                        </h4>
-                        <p className="text-xs text-slate-400 leading-relaxed line-clamp-2 mb-4">
-                          {clip.description}
-                        </p>
-                      </div>
-
-                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-semibold text-[#1E90FF]">
-                        <span>Play Short Video</span>
-                        <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                      </div>
-                    </div>
-                  </div>
+                  />
                 ))}
               </div>
             </div>
@@ -881,7 +899,7 @@ export const App: React.FC = () => {
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  All ({PORTFOLIO_PROJECTS.length})
+                  All ({activeProjectsList.length})
                 </button>
                 <button
                   onClick={() => setSelectedProjectCategory('web')}
@@ -936,8 +954,9 @@ export const App: React.FC = () => {
                 >
                   <div className="h-52 bg-[#050811] relative overflow-hidden">
                     <ImageSlot
-                      src={project.image}
+                      src={siteConfig.projectPhotos[project.id] || project.image}
                       fallbackSrc={project.fallbackImage}
+                      storageKey={`project_photo_${project.id}`}
                       alt={project.title}
                       className="w-full h-full object-cover photo-natural group-hover:scale-105 transition-transform duration-500"
                     />
@@ -1021,7 +1040,7 @@ export const App: React.FC = () => {
                   </h3>
 
                   <a
-                    href={SMORK_BIO.whatsappUrl}
+                    href={activeWhatsAppUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="flex items-center gap-3 p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/40 transition-colors cursor-pointer"
@@ -1031,12 +1050,12 @@ export const App: React.FC = () => {
                       <p className="text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold">
                         WhatsApp (Fastest)
                       </p>
-                      <p className="text-sm font-semibold text-white">{SMORK_BIO.whatsapp}</p>
+                      <p className="text-sm font-semibold text-white">{activeWhatsAppNumber}</p>
                     </div>
                   </a>
 
                   <a
-                    href={`mailto:${SMORK_BIO.email}`}
+                    href={`mailto:${activeEmail}`}
                     className="flex items-center gap-3 p-3 rounded-xl bg-blue-950/40 border border-[#1E90FF]/30 text-blue-300 hover:bg-blue-900/40 transition-colors cursor-pointer"
                   >
                     <Send className="w-5 h-5 text-[#1E90FF]" />
@@ -1044,7 +1063,7 @@ export const App: React.FC = () => {
                       <p className="text-xs font-mono uppercase tracking-wider text-[#1E90FF] font-bold">
                         Email Inquiry
                       </p>
-                      <p className="text-xs font-semibold text-white truncate">{SMORK_BIO.email}</p>
+                      <p className="text-xs font-semibold text-white truncate">{activeEmail}</p>
                     </div>
                   </a>
                 </div>
@@ -1162,24 +1181,43 @@ export const App: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3.5 text-left">
-              {SOCIAL_PROFILES.map((p) => (
-                <a
-                  key={p.name}
-                  href={p.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="p-4 rounded-xl bg-[#0F1D38]/50 hover:bg-[#0F1D38] border border-white/5 hover:border-[#1E90FF]/40 transition-all flex flex-col justify-between group cursor-pointer"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <i className={`${p.iconClass} text-lg text-slate-300 group-hover:text-[#1E90FF] transition-colors`} />
-                    <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-white transition-colors" />
-                  </div>
-                  <div>
-                    <p className="text-white font-bold text-xs truncate">{p.name}</p>
-                    <p className="text-[10px] font-mono text-slate-400 truncate">{p.handle}</p>
-                  </div>
-                </a>
-              ))}
+              {SOCIAL_PROFILES.map((p) => {
+                let dynamicUrl = p.url;
+                let dynamicHandle = p.handle;
+                if (p.name.toLowerCase().includes('tiktok') && siteConfig.labels.tiktokUrl) {
+                  dynamicUrl = siteConfig.labels.tiktokUrl;
+                } else if (p.name.toLowerCase().includes('youtube') && siteConfig.labels.youtubeUrl) {
+                  dynamicUrl = siteConfig.labels.youtubeUrl;
+                } else if (p.name.toLowerCase().includes('instagram') && siteConfig.labels.instagramUrl) {
+                  dynamicUrl = siteConfig.labels.instagramUrl;
+                } else if ((p.name.toLowerCase().includes('x') || p.name.toLowerCase().includes('twitter')) && siteConfig.labels.xTwitterUrl) {
+                  dynamicUrl = siteConfig.labels.xTwitterUrl;
+                } else if (p.name.toLowerCase().includes('whatsapp')) {
+                  dynamicUrl = activeWhatsAppUrl;
+                  dynamicHandle = activeWhatsAppNumber;
+                } else if (p.name.toLowerCase().includes('email')) {
+                  dynamicUrl = `mailto:${activeEmail}`;
+                  dynamicHandle = activeEmail;
+                }
+                return (
+                  <a
+                    key={p.name}
+                    href={dynamicUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-4 rounded-xl bg-[#0F1D38]/50 hover:bg-[#0F1D38] border border-white/5 hover:border-[#1E90FF]/40 transition-all flex flex-col justify-between group cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <i className={`${p.iconClass} text-lg text-slate-300 group-hover:text-[#1E90FF] transition-colors`} />
+                      <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-white transition-colors" />
+                    </div>
+                    <div>
+                      <p className="text-white font-bold text-xs truncate">{p.name}</p>
+                      <p className="text-[10px] font-mono text-slate-400 truncate">{dynamicHandle}</p>
+                    </div>
+                  </a>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -1200,9 +1238,34 @@ export const App: React.FC = () => {
         </div>
       </footer>
 
+      {/* Floating Owner Studio Trigger */}
+      <FloatingAdminButton onClick={handleOpenAdmin} />
+
+      {/* Admin Passcode Gate Modal */}
+      <PasscodeModal
+        isOpen={isPasscodeModalOpen}
+        onClose={() => setIsPasscodeModalOpen(false)}
+        onSuccess={() => {
+          setIsPasscodeModalOpen(false);
+          setIsAdminPortalOpen(true);
+        }}
+      />
+
+      {/* Admin Portal Studio Modal */}
+      <AdminPortalModal
+        isOpen={isAdminPortalOpen}
+        onClose={() => setIsAdminPortalOpen(false)}
+      />
+
       {/* Project Detail Modal */}
       {activeProject && (
-        <ProjectModal project={activeProject} onClose={() => setActiveProject(null)} />
+        <ProjectModal
+          project={{
+            ...activeProject,
+            image: siteConfig.projectPhotos[activeProject.id] || activeProject.image,
+          }}
+          onClose={() => setActiveProject(null)}
+        />
       )}
 
       {/* Short Video Clip Preview Modal */}

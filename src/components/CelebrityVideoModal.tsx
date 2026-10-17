@@ -14,7 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { VIDEO_PREVIEW_CLIPS, VideoClipItem } from '../data';
-import { getMediaItem } from '../utils/siteStore';
+import { getMediaItem, getStoredConfig, SiteConfig } from '../utils/siteStore';
 
 interface CelebrityVideoModalProps {
   clip: VideoClipItem | null;
@@ -27,13 +27,27 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
   onClose,
   onSelectClip,
 }) => {
+  const [videoClips, setVideoClips] = useState<VideoClipItem[]>(getStoredConfig().videoClips);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
-  const [customVideoSrc, setCustomVideoSrc] = useState<string | null>(null);
+  const [customVideoSrc, setCustomVideoSrc] = useState<string | null>(clip?.videoSrc || null);
   const timerRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const handleConfigChange = (e: Event) => {
+      const custom = e as CustomEvent<SiteConfig>;
+      if (custom.detail?.videoClips) {
+        setVideoClips(custom.detail.videoClips);
+      } else {
+        setVideoClips(getStoredConfig().videoClips);
+      }
+    };
+    window.addEventListener('smokyzone_config_change', handleConfigChange);
+    return () => window.removeEventListener('smokyzone_config_change', handleConfigChange);
+  }, []);
 
   // Exact 5-second duration loop
   const totalSeconds = 5;
@@ -48,11 +62,27 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
   }, [clip?.id]);
 
   useEffect(() => {
+    let isMounted = true;
     if (clip) {
       getMediaItem(`video_clip_${clip.id}`).then((custom) => {
-        setCustomVideoSrc(custom);
+        if (isMounted) setCustomVideoSrc(custom || clip.videoSrc || null);
       });
     }
+
+    const handleMedia = (e: Event) => {
+      const customEvent = e as CustomEvent<{ key?: string; data?: string }>;
+      if (!customEvent.detail || customEvent.detail.key === `video_clip_${clip?.id}`) {
+        getMediaItem(`video_clip_${clip?.id}`).then((custom) => {
+          if (isMounted) setCustomVideoSrc(custom || clip?.videoSrc || null);
+        });
+      }
+    };
+
+    window.addEventListener('smokyzone_media_change', handleMedia);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('smokyzone_media_change', handleMedia);
+    };
   }, [clip?.id]);
 
   useEffect(() => {
@@ -242,11 +272,11 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
             {/* Video Playlist Carousel */}
             <div className="pt-4 border-t border-white/10 space-y-2">
               <span className="text-xs font-mono text-slate-400 uppercase tracking-wider block">
-                More Short Video Clips ({VIDEO_PREVIEW_CLIPS.length})
+                More Short Video Clips ({videoClips.length})
               </span>
 
               <div className="grid grid-cols-2 gap-2">
-                {VIDEO_PREVIEW_CLIPS.map((item) => {
+                {videoClips.map((item) => {
                   const isCurrent = item.id === clip.id;
                   return (
                     <button

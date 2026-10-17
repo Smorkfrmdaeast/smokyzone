@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Public website content - read allowed for all visitors, write allowed with valid ID
+    match /site_content/{settingId} {
+      allow read: if isValidId(settingId);
+      allow write: if isValidId(settingId);
+    }
+
+    // Public media storage - read allowed for all visitors, write allowed with valid ID
+    match /media_items/{mediaId} {
+      allow read: if isValidId(mediaId);
+      allow write: if isValidId(mediaId);
+    }
+  }
+}

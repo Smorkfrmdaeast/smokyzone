@@ -3,9 +3,10 @@ import { Menu, X, ArrowUpRight } from 'lucide-react';
 
 interface NavbarProps {
   onNavigate: (id: string) => void;
+  onOpenAdmin?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onNavigate }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onOpenAdmin }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLinkClick = (id: string) => {
@@ -70,6 +71,16 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate }) => {
 
         {/* Zone 3: 1 primary action */}
         <div className="hidden md:flex items-center gap-3 shrink-0">
+          {onOpenAdmin && (
+            <button
+              onClick={onOpenAdmin}
+              className="p-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-[#1E90FF] transition-colors border border-white/10"
+              title="Site Control & Media Studio"
+              aria-label="Open Site Control"
+            >
+              <i className="fa-solid fa-sliders text-sm" />
+            </button>
+          )}
           <button
             onClick={() => handleLinkClick('contact')}
             className="px-5 py-2.5 text-xs font-semibold uppercase tracking-wider text-white bg-[#1E90FF] hover:bg-[#1873cc] rounded-lg transition-all shadow-md shadow-[#1E90FF]/25 flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
@@ -138,13 +149,24 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate }) => {
             Contact & Connect
           </button>
 
-          <div className="pt-4">
+          <div className="pt-4 flex flex-col gap-2">
             <button
               onClick={() => handleLinkClick('contact')}
-              className="w-full py-3 text-center text-xs uppercase tracking-wider font-bold rounded-lg bg-[#1E90FF] text-white shadow-lg shadow-[#1E90FF]/30"
+              className="w-full py-3 text-center text-xs uppercase tracking-wider font-bold rounded-lg bg-[#1E90FF] text-white shadow-lg shadow-[#1E90FF]/30 cursor-pointer"
             >
               Work With Smork
             </button>
+            {onOpenAdmin && (
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenAdmin();
+                }}
+                className="w-full py-2.5 text-center text-xs uppercase tracking-wider font-semibold rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:text-white cursor-pointer"
+              >
+                Owner Site Control Studio 🔐
+              </button>
+            )}
           </div>
         </div>
       </div>

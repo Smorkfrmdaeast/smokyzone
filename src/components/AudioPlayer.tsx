@@ -13,6 +13,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { CELEBRITY_PLAYLIST, MusicTrack } from '../data';
+import { getStoredConfig, getMediaItem, SiteConfig } from '../utils/siteStore';
 
 interface AudioPlayerProps {
   initialTrackIndex?: number;
@@ -23,6 +24,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   initialTrackIndex = 0,
   compact = false,
 }) => {
+  const [playlist, setPlaylist] = useState<MusicTrack[]>(getStoredConfig().playlist);
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(initialTrackIndex);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -30,8 +32,46 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const [barHeights, setBarHeights] = useState<number[]>([12, 18, 25, 40, 20, 15, 30, 25, 18, 12, 10, 8]);
   const [showPlaylist, setShowPlaylist] = useState<boolean>(false);
   const [trackProgress, setTrackProgress] = useState<number>(0);
+  const [customAudioSrc, setCustomAudioSrc] = useState<string | null>(null);
 
-  const currentTrack: MusicTrack = CELEBRITY_PLAYLIST[currentTrackIndex] || CELEBRITY_PLAYLIST[0];
+  const safeIndex = currentTrackIndex < playlist.length ? currentTrackIndex : 0;
+  const currentTrack: MusicTrack = playlist[safeIndex] || CELEBRITY_PLAYLIST[0];
+
+  useEffect(() => {
+    const handleConfig = (e: Event) => {
+      const custom = e as CustomEvent<SiteConfig>;
+      if (custom.detail?.playlist?.length) {
+        setPlaylist(custom.detail.playlist);
+      } else {
+        setPlaylist(getStoredConfig().playlist);
+      }
+    };
+    window.addEventListener('smokyzone_config_change', handleConfig);
+    return () => window.removeEventListener('smokyzone_config_change', handleConfig);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (currentTrack) {
+      getMediaItem(`audio_track_${currentTrack.id}`).then((src) => {
+        if (isMounted) setCustomAudioSrc(src || currentTrack.audioSrc || null);
+      });
+    }
+
+    const handleMedia = (e: Event) => {
+      const customEvent = e as CustomEvent<{ key?: string; data?: string }>;
+      if (!customEvent.detail || customEvent.detail.key === `audio_track_${currentTrack?.id}`) {
+        getMediaItem(`audio_track_${currentTrack?.id}`).then((src) => {
+          if (isMounted) setCustomAudioSrc(src || currentTrack?.audioSrc || null);
+        });
+      }
+    };
+    window.addEventListener('smokyzone_media_change', handleMedia);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('smokyzone_media_change', handleMedia);
+    };
+  }, [currentTrack?.id]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -233,9 +273,11 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const togglePlay = async () => {
     ensureAudioContext();
 
+    const activeAudioSrc = customAudioSrc || currentTrack.audioSrc;
+
     if (isPlaying) {
       // Pause
-      if (audioRef.current && currentTrack.audioSrc) {
+      if (audioRef.current && activeAudioSrc) {
         audioRef.current.pause();
       }
       stopSynthesizedBeat();
@@ -250,8 +292,9 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       setIsPlaying(true);
       startVisualizer();
 
-      if (currentTrack.audioSrc && audioRef.current) {
+      if (activeAudioSrc && audioRef.current) {
         try {
+          audioRef.current.src = activeAudioSrc;
           audioRef.current.volume = isMuted ? 0 : volume;
           await audioRef.current.play();
         } catch {
@@ -276,14 +319,16 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       stopSynthesizedBeat();
     }
 
-    setCurrentTrackIndex(index);
+    const safeIndex = index < playlist.length ? index : 0;
+    setCurrentTrackIndex(safeIndex);
     setTrackProgress(0);
 
     if (wasPlaying) {
       setTimeout(() => {
-        const nextTrack = CELEBRITY_PLAYLIST[index];
-        if (nextTrack.audioSrc && audioRef.current) {
-          audioRef.current.src = nextTrack.audioSrc;
+        const nextTrack = playlist[safeIndex];
+        const nextSrc = nextTrack.audioSrc;
+        if (nextSrc && audioRef.current) {
+          audioRef.current.src = nextSrc;
           audioRef.current.play().catch(() => playSynthesizedBeat());
         } else {
           playSynthesizedBeat();
@@ -293,12 +338,14 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   };
 
   const handleNext = () => {
-    const nextIdx = (currentTrackIndex + 1) % CELEBRITY_PLAYLIST.length;
+    if (playlist.length === 0) return;
+    const nextIdx = (currentTrackIndex + 1) % playlist.length;
     changeTrack(nextIdx);
   };
 
   const handlePrev = () => {
-    const prevIdx = (currentTrackIndex - 1 + CELEBRITY_PLAYLIST.length) % CELEBRITY_PLAYLIST.length;
+    if (playlist.length === 0) return;
+    const prevIdx = (currentTrackIndex - 1 + playlist.length) % playlist.length;
     changeTrack(prevIdx);
   };
 

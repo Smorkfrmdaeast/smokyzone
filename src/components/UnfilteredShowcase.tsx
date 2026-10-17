@@ -17,7 +17,7 @@ import {
   Flame,
 } from 'lucide-react';
 import { fileToBase64, setStoredPhoto } from '../utils/photoStorage';
-import { getMediaItem } from '../utils/siteStore';
+import { getMediaItem, getStoredConfig } from '../utils/siteStore';
 
 export const UnfilteredShowcase: React.FC = () => {
   const [activeView, setActiveView] = useState<'walkin' | 'portrait' | 'manifesto'>('walkin');
@@ -26,27 +26,55 @@ export const UnfilteredShowcase: React.FC = () => {
   const [ambientBarHeights, setAmbientBarHeights] = useState<number[]>([15, 30, 45, 60, 35, 20, 50, 40]);
   const [photoVersion, setPhotoVersion] = useState<number>(0);
   const [customWalkinPhoto, setCustomWalkinPhoto] = useState<string | null>(null);
+  const [walkinTagline, setWalkinTagline] = useState<string>(
+    getStoredConfig().labels.walkinTagline || 'RAW ENERGY. NO CUTS.'
+  );
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    // Initial fetch of custom walkin photo from store
-    getMediaItem('walkin_photo').then((photo) => {
-      if (photo) setCustomWalkinPhoto(photo);
-    });
+    const loadWalkin = async () => {
+      const customMedia = await getMediaItem('walkin_custom_media');
+      if (customMedia) {
+        setCustomWalkinPhoto(customMedia);
+        return;
+      }
+      const photo = await getMediaItem('walkin_photo');
+      if (photo) {
+        setCustomWalkinPhoto(photo);
+        return;
+      }
+      const config = getStoredConfig();
+      if (config.walkinPhoto) {
+        setCustomWalkinPhoto(config.walkinPhoto);
+      } else {
+        setCustomWalkinPhoto(null);
+      }
+    };
+    loadWalkin();
 
     const handleMediaChange = (e: Event) => {
-      const customEvent = e as CustomEvent<{ key?: string }>;
-      if (!customEvent.detail || customEvent.detail.key === 'walkin_photo') {
-        getMediaItem('walkin_photo').then((photo) => {
-          setCustomWalkinPhoto(photo);
-        });
+      const customEvent = e as CustomEvent<{ key?: string; data?: string }>;
+      if (!customEvent.detail || customEvent.detail.key === 'walkin_custom_media' || customEvent.detail.key === 'walkin_photo') {
+        loadWalkin();
+      }
+    };
+
+    const handleConfigChange = () => {
+      loadWalkin();
+      const cfg = getStoredConfig();
+      if (cfg.labels?.walkinTagline) {
+        setWalkinTagline(cfg.labels.walkinTagline);
       }
     };
 
     window.addEventListener('smokyzone_media_change', handleMediaChange);
-    return () => window.removeEventListener('smokyzone_media_change', handleMediaChange);
+    window.addEventListener('smokyzone_config_change', handleConfigChange);
+    return () => {
+      window.removeEventListener('smokyzone_media_change', handleMediaChange);
+      window.removeEventListener('smokyzone_config_change', handleConfigChange);
+    };
   }, []);
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -171,16 +199,29 @@ export const UnfilteredShowcase: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-12 items-center">
             {/* Visual Stage Frame */}
             <div className="lg:col-span-7 relative bg-black aspect-video sm:aspect-[16/10] overflow-hidden group">
-              <img
-                src={customWalkinPhoto || '/images/celebrity_smork.jpg'}
-                alt="SMORK UNFILTERED Walk-In Visual — Ifeanyi Emmanuel Nnamani"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = '/images/celebrity_smork.jpg';
-                }}
-                className={`w-full h-full object-cover object-[center_top] transition-all duration-700 ${
-                  isPlayingAtmosphere ? 'scale-105 contrast-105' : 'scale-100'
-                }`}
-              />
+              {customWalkinPhoto && customWalkinPhoto.startsWith('data:video') ? (
+                <video
+                  src={customWalkinPhoto}
+                  autoPlay
+                  loop
+                  muted={isMuted}
+                  playsInline
+                  className={`w-full h-full object-cover object-[center_top] transition-all duration-700 ${
+                    isPlayingAtmosphere ? 'scale-105 contrast-105' : 'scale-100'
+                  }`}
+                />
+              ) : (
+                <img
+                  src={customWalkinPhoto || '/images/celebrity_smork.jpg'}
+                  alt="SMORK UNFILTERED Walk-In Visual — Ifeanyi Emmanuel Nnamani"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = '/images/celebrity_smork.jpg';
+                  }}
+                  className={`w-full h-full object-cover object-[center_top] transition-all duration-700 ${
+                    isPlayingAtmosphere ? 'scale-105 contrast-105' : 'scale-100'
+                  }`}
+                />
+              )}
 
               {/* HUD Status Badge (Clean, unobstructed) */}
               <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
@@ -238,7 +279,7 @@ export const UnfilteredShowcase: React.FC = () => {
                   The Official Walk-In Experience
                 </span>
                 <h3 className="text-2xl sm:text-3xl font-extrabold text-white font-['Outfit',sans-serif] leading-tight">
-                  RAW ENERGY. NO CUTS.
+                  {walkinTagline}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mt-2">
                   When Smork enters the space, the vibe shifts immediately. There are no corporate masks, no rehearsals, and no filters. Just pure cultural power, dedication to the craft, and the voice of the streets.
