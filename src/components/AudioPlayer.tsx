@@ -15,6 +15,8 @@ import {
 import { CELEBRITY_PLAYLIST, MusicTrack } from '../data';
 import { getStoredConfig, getMediaItem, SiteConfig } from '../utils/siteStore';
 
+import { mediaManager } from '../utils/mediaManager';
+
 interface AudioPlayerProps {
   initialTrackIndex?: number;
   compact?: boolean;
@@ -46,9 +48,37 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         setPlaylist(getStoredConfig().playlist);
       }
     };
+
+    const handlePauseMusic = () => {
+      if (audioRef.current) audioRef.current.pause();
+      stopSynthesizedBeat();
+      stopVisualizer();
+      setIsPlaying(false);
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+    };
+
+    const handleResumeMusic = (e: Event) => {
+      const custom = e as CustomEvent<{ position?: number }>;
+      if (!isPlaying) {
+        if (audioRef.current && typeof custom.detail?.position === 'number') {
+          audioRef.current.currentTime = custom.detail.position;
+        }
+        startPlayback();
+      }
+    };
+
     window.addEventListener('smokyzone_config_change', handleConfig);
-    return () => window.removeEventListener('smokyzone_config_change', handleConfig);
-  }, []);
+    window.addEventListener('smokyzone_pause_music', handlePauseMusic);
+    window.addEventListener('smokyzone_resume_music', handleResumeMusic);
+    return () => {
+      window.removeEventListener('smokyzone_config_change', handleConfig);
+      window.removeEventListener('smokyzone_pause_music', handlePauseMusic);
+      window.removeEventListener('smokyzone_resume_music', handleResumeMusic);
+    };
+  }, [isPlaying]);
 
   useEffect(() => {
     let isMounted = true;
@@ -270,9 +300,42 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     setBarHeights([10, 15, 12, 18, 14, 12, 16, 14, 12, 10, 8, 6]);
   };
 
+  const startPlayback = async () => {
+    ensureAudioContext();
+    const activeAudioSrc = customAudioSrc || currentTrack.audioSrc;
+    setIsPlaying(true);
+    startVisualizer();
+    window.dispatchEvent(new CustomEvent('smokyzone_music_playing'));
+
+    const currentPos = audioRef.current?.currentTime || 0;
+    mediaManager.onMusicPlay(currentPos);
+
+    if (activeAudioSrc && audioRef.current) {
+      try {
+        if (!audioRef.current.src || !audioRef.current.src.includes(activeAudioSrc)) {
+          audioRef.current.src = activeAudioSrc;
+        }
+        audioRef.current.volume = isMuted ? 0 : volume;
+        await audioRef.current.play();
+      } catch {
+        playSynthesizedBeat();
+      }
+    } else {
+      playSynthesizedBeat();
+    }
+
+    if (!progressTimerRef.current) {
+      progressTimerRef.current = window.setInterval(() => {
+        setTrackProgress((prev) => (prev >= 100 ? 0 : prev + 0.8));
+        if (audioRef.current) {
+          mediaManager.updateMusicPosition(audioRef.current.currentTime);
+        }
+      }, 1000);
+    }
+  };
+
   const togglePlay = async () => {
     ensureAudioContext();
-
     const activeAudioSrc = customAudioSrc || currentTrack.audioSrc;
 
     if (isPlaying) {
@@ -283,32 +346,13 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       stopSynthesizedBeat();
       stopVisualizer();
       setIsPlaying(false);
+      mediaManager.onMusicPause(true);
       if (progressTimerRef.current) {
         clearInterval(progressTimerRef.current);
         progressTimerRef.current = null;
       }
     } else {
-      // Play
-      setIsPlaying(true);
-      startVisualizer();
-
-      if (activeAudioSrc && audioRef.current) {
-        try {
-          audioRef.current.src = activeAudioSrc;
-          audioRef.current.volume = isMuted ? 0 : volume;
-          await audioRef.current.play();
-        } catch {
-          // If browser blocks audio, start synthesized rhythmic track
-          playSynthesizedBeat();
-        }
-      } else {
-        playSynthesizedBeat();
-      }
-
-      // Simulated track progress
-      progressTimerRef.current = window.setInterval(() => {
-        setTrackProgress((prev) => (prev >= 100 ? 0 : prev + 0.8));
-      }, 1000);
+      await startPlayback();
     }
   };
 
@@ -324,6 +368,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     setTrackProgress(0);
 
     if (wasPlaying) {
+      window.dispatchEvent(new CustomEvent('smokyzone_music_playing'));
       setTimeout(() => {
         const nextTrack = playlist[safeIndex];
         const nextSrc = nextTrack.audioSrc;
@@ -411,10 +456,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
               ? 'bg-[#1E90FF] text-white border-[#1E90FF]'
               : 'bg-[#050811] text-slate-300 border-white/10 hover:border-[#1E90FF]/50'
           }`}
-          title="Toggle 10+ Track Catalog"
+          title="Toggle Track Catalog"
         >
           <ListMusic className="w-4 h-4" />
-          <span className="hidden sm:inline">11 Tracks</span>
+          <span className="hidden sm:inline">{playlist.length} Tracks</span>
         </button>
       </div>
 
@@ -507,16 +552,17 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         </div>
       </div>
 
-      {/* Expandable 10+ Track Catalog */}
+      {/* Expandable Track Catalog */}
       {showPlaylist && (
         <div className="mt-5 pt-4 border-t border-white/10 max-h-72 overflow-y-auto space-y-1.5 text-left custom-scrollbar">
           <div className="flex items-center justify-between text-xs font-mono text-[#1E90FF] mb-2 px-1">
             <span>SMOKY ZONE OFFICIAL SELECTION</span>
-            <span>{CELEBRITY_PLAYLIST.length} TRACKS</span>
+            <span>{playlist.length} TRACKS</span>
           </div>
 
-          {CELEBRITY_PLAYLIST.map((track, idx) => {
+          {playlist.map((track, idx) => {
             const isCurrent = idx === currentTrackIndex;
+            const needsReview = track.tag?.toLowerCase().includes('review') || track.title?.toLowerCase().includes('review');
             return (
               <button
                 key={track.id}
@@ -532,9 +578,16 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                     {idx + 1 < 10 ? `0${idx + 1}` : idx + 1}
                   </span>
                   <div className="truncate text-left">
-                    <p className={`font-semibold truncate ${isCurrent ? 'text-[#1E90FF]' : 'text-white'}`}>
-                      {track.title}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className={`font-semibold truncate ${isCurrent ? 'text-[#1E90FF]' : 'text-white'}`}>
+                        {track.title}
+                      </p>
+                      {needsReview && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30 flex-shrink-0">
+                          Review
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-slate-400 font-mono truncate">{track.artist}</p>
                   </div>
                 </div>

@@ -16,6 +16,8 @@ import {
 import { VIDEO_PREVIEW_CLIPS, VideoClipItem } from '../data';
 import { getMediaItem, getStoredConfig, SiteConfig } from '../utils/siteStore';
 
+import { mediaManager } from '../utils/mediaManager';
+
 interface CelebrityVideoModalProps {
   clip: VideoClipItem | null;
   onClose: () => void;
@@ -58,6 +60,9 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
       setCurrentTimeSec(0);
       setIsPlaying(true);
       setIsMuted(false); // Opens fullscreen with sound
+      mediaManager.onVideoPlay(clip.id, true);
+    } else {
+      mediaManager.onVideoStop();
     }
   }, [clip?.id]);
 
@@ -94,7 +99,27 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
         audioRef.current.pause();
       }
     }
-  }, [isPlaying, isMuted]);
+
+    if (clip) {
+      if (isPlaying && !isMuted) {
+        mediaManager.onVideoPlay(clip.id, true);
+      } else if (!isPlaying || isMuted) {
+        mediaManager.onVideoStop(clip.id);
+      }
+    }
+  }, [isPlaying, isMuted, clip]);
+
+  useEffect(() => {
+    const handlePauseVideo = () => {
+      setIsPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+
+    window.addEventListener('smokyzone_pause_video', handlePauseVideo);
+    return () => window.removeEventListener('smokyzone_pause_video', handlePauseVideo);
+  }, []);
 
   useEffect(() => {
     if (clip && isPlaying) {
@@ -119,6 +144,11 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
 
   if (!clip) return null;
 
+  const handleCloseModal = () => {
+    mediaManager.onVideoStop(clip?.id);
+    onClose();
+  };
+
   const togglePlay = () => setIsPlaying(!isPlaying);
   const toggleMute = () => setIsMuted(!isMuted);
 
@@ -127,8 +157,8 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
       <div className="relative w-full max-w-4xl bg-[#0A192F] border border-[#1E90FF]/40 rounded-3xl overflow-hidden shadow-[0_20px_60px_rgba(30,144,255,0.25)] flex flex-col md:flex-row max-h-[90vh]">
         {/* Close Button */}
         <button
-          onClick={onClose}
-          className="absolute top-4 right-4 z-20 w-10 h-10 rounded-full bg-black/70 hover:bg-red-600/80 text-white flex items-center justify-center transition-all cursor-pointer border border-white/10"
+          onClick={handleCloseModal}
+          className="absolute top-4 right-4 z-20 w-10 h-10 min-w-[44px] min-h-[44px] rounded-full bg-black/70 hover:bg-red-600/80 text-white flex items-center justify-center transition-all cursor-pointer border border-white/10"
           aria-label="Close modal"
         >
           <X className="w-5 h-5" />

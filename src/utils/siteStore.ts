@@ -171,6 +171,14 @@ export const removeMediaItem = async (key: string): Promise<void> => {
   window.dispatchEvent(new CustomEvent('smokyzone_media_change', { detail: { key: sanitizedKey, removed: true } }));
 };
 
+export interface ActivityLogItem {
+  id: string;
+  timestamp: string;
+  title: string;
+  details: string;
+  type: 'music' | 'media' | 'system' | 'security';
+}
+
 // Site Config State: Complete dynamic control over all parts of Smoky Zone
 export interface SiteConfig {
   walkinPhoto: string | null;
@@ -178,6 +186,7 @@ export interface SiteConfig {
   videoClips: VideoClipItem[];
   projects: PortfolioProject[];
   unfilteredThoughts: UnfilteredThought[];
+  activityLogs: ActivityLogItem[];
   labels: {
     heroTitle: string;
     heroSubtitle: string;
@@ -206,6 +215,16 @@ export const getDefaultConfig = (): SiteConfig => {
     videoClips: VIDEO_PREVIEW_CLIPS,
     projects: PORTFOLIO_PROJECTS,
     unfilteredThoughts: UNFILTERED_THOUGHTS,
+    activityLogs: [
+      {
+        id: 'log-catalog-import-1',
+        timestamp: new Date().toISOString(),
+        title: 'Smoky Zone Music Catalog Import',
+        details:
+          'Imported and verified 10-track Official Selection (Slot 01: Gunna - endless, Put Work, Pop Smoke - Dior, ODUMODUBLVCK - Declan Rice, Lil Baby - In A Minute, Fivio Foreign - Big Drip, Phyno - Do I, JeriQ - 11:11, JeriQ & Insane Chips - 11:11 Instrumental, Kay Flock - Shake It) with verified file durations, genres, and Cloud Firestore real-time synchronization.',
+        type: 'music',
+      },
+    ],
     labels: {
       heroTitle: 'ONE MIND. DIFFERENT WORLDS. ONE AUTHENTIC JOURNEY.',
       heroSubtitle: 'Technology Engineering · Raw Cultural Commentary · Real Community Life',
@@ -230,13 +249,19 @@ export const getStoredConfig = (): SiteConfig => {
     const raw = localStorage.getItem(CONFIG_STORAGE_KEY);
     if (!raw) return getDefaultConfig();
     const parsed = JSON.parse(raw);
+    const hasOldPlaceholder =
+      parsed.playlist?.some((t: MusicTrack) => t.title === 'Fukumean' || t.artist === 'Central Cee');
+    const activePlaylist =
+      hasOldPlaceholder || !parsed.playlist?.length ? CELEBRITY_PLAYLIST : parsed.playlist;
+
     return {
       ...getDefaultConfig(),
       ...parsed,
-      playlist: parsed.playlist?.length ? parsed.playlist : CELEBRITY_PLAYLIST,
+      playlist: activePlaylist,
       videoClips: parsed.videoClips?.length ? parsed.videoClips : VIDEO_PREVIEW_CLIPS,
       projects: parsed.projects?.length ? parsed.projects : PORTFOLIO_PROJECTS,
       unfilteredThoughts: parsed.unfilteredThoughts?.length ? parsed.unfilteredThoughts : UNFILTERED_THOUGHTS,
+      activityLogs: parsed.activityLogs?.length ? parsed.activityLogs : getDefaultConfig().activityLogs,
       labels: {
         ...getDefaultConfig().labels,
         ...(parsed.labels || {}),
@@ -318,6 +343,9 @@ export const initCloudSync = (): (() => void) => {
               unfilteredThoughts: cloudConfig.unfilteredThoughts?.length
                 ? cloudConfig.unfilteredThoughts
                 : localConfig.unfilteredThoughts,
+              activityLogs: cloudConfig.activityLogs?.length
+                ? cloudConfig.activityLogs
+                : localConfig.activityLogs || getDefaultConfig().activityLogs,
               labels: {
                 ...getDefaultConfig().labels,
                 ...(cloudConfig.labels || {}),
@@ -418,39 +446,22 @@ export const initCloudSync = (): (() => void) => {
   }
 };
 
-// Passcode Authentication
-const ADMIN_PASSCODE_KEY = 'smokyzone_admin_passcode';
-const ADMIN_SESSION_KEY = 'smokyzone_admin_auth_session';
-const DEFAULT_PASSCODE = 'smork2026';
-
-export const getAdminPasscode = (): string => {
-  return localStorage.getItem(ADMIN_PASSCODE_KEY) || DEFAULT_PASSCODE;
-};
-
-export const setAdminPasscode = (newPass: string): void => {
-  localStorage.setItem(ADMIN_PASSCODE_KEY, newPass);
-};
+// Authentication state synced with Firebase Auth
+import { auth } from '../firebase';
 
 export const isUserAdminAuthenticated = (): boolean => {
-  return sessionStorage.getItem(ADMIN_SESSION_KEY) === 'true' || localStorage.getItem(ADMIN_SESSION_KEY) === 'true';
+  return auth.currentUser !== null;
 };
 
-export const verifyAdminPasscode = (input: string, remember = true): boolean => {
-  const current = getAdminPasscode();
-  if (input.trim() === current.trim()) {
-    sessionStorage.setItem(ADMIN_SESSION_KEY, 'true');
-    if (remember) {
-      localStorage.setItem(ADMIN_SESSION_KEY, 'true');
-    }
-    window.dispatchEvent(new CustomEvent('smokyzone_auth_change', { detail: { authenticated: true } }));
-    return true;
+export const adminSignOut = async (): Promise<void> => {
+  try {
+    const { logoutOwner } = await import('./authManager');
+    await logoutOwner();
+  } catch {
+    // fallback
   }
-  return false;
-};
-
-export const adminSignOut = (): void => {
-  sessionStorage.removeItem(ADMIN_SESSION_KEY);
-  localStorage.removeItem(ADMIN_SESSION_KEY);
+  sessionStorage.removeItem('smokyzone_admin_auth_session');
+  localStorage.removeItem('smokyzone_admin_auth_session');
   window.dispatchEvent(new CustomEvent('smokyzone_auth_change', { detail: { authenticated: false } }));
 };
 
@@ -470,3 +481,24 @@ export const importSiteConfigJSON = (jsonStr: string): boolean => {
     return false;
   }
 };
+
+export const addActivityLog = (
+  title: string,
+  details: string,
+  type: 'music' | 'media' | 'system' | 'security' = 'music'
+): void => {
+  const current = getStoredConfig();
+  const newLog: ActivityLogItem = {
+    id: `log_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    timestamp: new Date().toISOString(),
+    title,
+    details,
+    type,
+  };
+  const updatedLogs = [newLog, ...(current.activityLogs || [])].slice(0, 50);
+  saveStoredConfig({
+    ...current,
+    activityLogs: updatedLogs,
+  });
+};
+

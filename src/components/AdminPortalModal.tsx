@@ -24,6 +24,13 @@ import {
   RefreshCw,
   Plus,
   Radio,
+  Activity,
+  Edit3,
+  ArrowUp,
+  ArrowDown,
+  LogOut,
+  UserCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   SiteConfig,
@@ -33,21 +40,27 @@ import {
   setMediaItem,
   getMediaItem,
   removeMediaItem,
-  getAdminPasscode,
-  setAdminPasscode,
   adminSignOut,
   exportSiteConfigJSON,
   importSiteConfigJSON,
+  addActivityLog,
+  ActivityLogItem,
 } from '../utils/siteStore';
 import { fileToBase64, compressImageFile, setStoredPhoto, getStoredPhoto, removeStoredPhoto } from '../utils/photoStorage';
 import { MusicTrack, VideoClipItem, PortfolioProject, UnfilteredThought, PORTFOLIO_PROJECTS, UNFILTERED_THOUGHTS } from '../data';
+import { auth } from '../firebase';
+import {
+  changeOwnerPassword,
+  logoutOwner,
+  getDeviceInfo,
+} from '../utils/authManager';
 
 interface AdminPortalModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type TabType = 'photos' | 'shorts' | 'music' | 'projects' | 'thoughts' | 'labels' | 'security';
+type TabType = 'photos' | 'shorts' | 'music' | 'projects' | 'thoughts' | 'labels' | 'security' | 'activity';
 
 export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<TabType>('photos');
@@ -70,6 +83,19 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
   const [testingAudioId, setTestingAudioId] = useState<string | null>(null);
   const [isTestPlaying, setIsTestPlaying] = useState(false);
   const testAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Track editing state
+  const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
+  const [editTrackTitle, setEditTrackTitle] = useState('');
+  const [editTrackArtist, setEditTrackArtist] = useState('');
+  const [editTrackGenre, setEditTrackGenre] = useState('');
+  const [editTrackDuration, setEditTrackDuration] = useState('');
+  const [editTrackTag, setEditTrackTag] = useState('');
+
+  // Activity Log Form State
+  const [activityFilter, setActivityFilter] = useState<'all' | 'music' | 'media' | 'system'>('all');
+  const [customLogTitle, setCustomLogTitle] = useState('');
+  const [customLogDetails, setCustomLogDetails] = useState('');
 
   // New Short Video Form State
   const [isAddingShort, setIsAddingShort] = useState(false);
@@ -332,6 +358,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
   };
 
   const handleDeleteTrack = (id: string) => {
+    const trackToDelete = config.playlist.find((t) => t.id === id);
     const updated = {
       ...config,
       playlist: config.playlist.filter((t) => t.id !== id),
@@ -339,7 +366,78 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
     setConfig(updated);
     saveStoredConfig(updated);
     removeMediaItem(`audio_track_${id}`);
+    addActivityLog('Track Removed', `Removed track "${trackToDelete?.title || id}" from playlist.`, 'music');
     showToast('Track removed from playlist.');
+  };
+
+  const handleStartEditTrack = (track: MusicTrack) => {
+    setEditingTrackId(track.id);
+    setEditTrackTitle(track.title);
+    setEditTrackArtist(track.artist);
+    setEditTrackGenre(track.genre);
+    setEditTrackDuration(track.duration);
+    setEditTrackTag(track.tag);
+  };
+
+  const handleSaveEditTrack = (trackId: string) => {
+    const updatedPlaylist = config.playlist.map((t) => {
+      if (t.id === trackId) {
+        return {
+          ...t,
+          title: editTrackTitle.trim() || t.title,
+          artist: editTrackArtist.trim() || t.artist,
+          genre: editTrackGenre.trim() || t.genre,
+          duration: editTrackDuration.trim() || t.duration,
+          tag: editTrackTag.trim() || t.tag,
+        };
+      }
+      return t;
+    });
+    const updated = {
+      ...config,
+      playlist: updatedPlaylist,
+    };
+    setConfig(updated);
+    saveStoredConfig(updated);
+    setEditingTrackId(null);
+    addActivityLog('Track Metadata Updated', `Saved updates for "${editTrackTitle}" (${editTrackGenre})`, 'music');
+    showToast(`Track "${editTrackTitle}" saved successfully!`);
+  };
+
+  const handleReplaceTrackAudio = async (trackId: string, file: File) => {
+    setIsUploading(true);
+    try {
+      const base64 = await fileToBase64(file);
+      await setMediaItem(`audio_track_${trackId}`, base64, 'audio/mp3');
+      const updatedPlaylist = config.playlist.map((t) =>
+        t.id === trackId ? { ...t, audioSrc: base64 } : t
+      );
+      const updated = {
+        ...config,
+        playlist: updatedPlaylist,
+      };
+      setConfig(updated);
+      saveStoredConfig(updated);
+      const track = config.playlist.find((t) => t.id === trackId);
+      addActivityLog('Audio File Updated', `Replaced MP3 audio file for "${track?.title || trackId}".`, 'music');
+      showToast('Audio file replaced and synced live!');
+    } catch {
+      showToast('Failed to replace audio file.', 'error');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleAddCustomActivityLog = () => {
+    if (!customLogTitle.trim()) {
+      showToast('Please enter a log title.', 'error');
+      return;
+    }
+    addActivityLog(customLogTitle.trim(), customLogDetails.trim() || 'Manual log entry', 'system');
+    setConfig(getStoredConfig());
+    setCustomLogTitle('');
+    setCustomLogDetails('');
+    showToast('Activity log recorded!');
   };
 
   // 4. Project Showcase Handlers
@@ -467,28 +565,97 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
     showToast('All titles, bio, WhatsApp, and social links saved & synced across site!');
   };
 
-  // 7. Change Passcode
-  const handleChangePasscode = (e: React.FormEvent) => {
+  // Reorder Item Helpers (Requirement 4: Phone & PC Content Control)
+  const moveTrack = (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= config.playlist.length) return;
+    const nextList = [...config.playlist];
+    const [moved] = nextList.splice(index, 1);
+    nextList.splice(targetIdx, 0, moved);
+    const updated = { ...config, playlist: nextList };
+    setConfig(updated);
+    saveStoredConfig(updated);
+    addActivityLog('Reordered Playlist', `Moved "${moved.title}" to slot #${targetIdx + 1} from ${getDeviceInfo()}`, 'system');
+    showToast(`Track "${moved.title}" moved ${direction}.`);
+  };
+
+  const moveShort = (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    if (targetIdx < 0 || targetIdx >= config.videoClips.length) return;
+    const nextList = [...config.videoClips];
+    const [moved] = nextList.splice(index, 1);
+    nextList.splice(targetIdx, 0, moved);
+    const updated = { ...config, videoClips: nextList };
+    setConfig(updated);
+    saveStoredConfig(updated);
+    addActivityLog('Reordered Shorts', `Moved "${moved.title}" to position #${targetIdx + 1} from ${getDeviceInfo()}`, 'system');
+    showToast(`Short "${moved.title}" moved ${direction}.`);
+  };
+
+  const moveProject = (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    const list = config.projects || [];
+    if (targetIdx < 0 || targetIdx >= list.length) return;
+    const nextList = [...list];
+    const [moved] = nextList.splice(index, 1);
+    nextList.splice(targetIdx, 0, moved);
+    const updated = { ...config, projects: nextList };
+    setConfig(updated);
+    saveStoredConfig(updated);
+    addActivityLog('Reordered Projects', `Moved "${moved.title}" to position #${targetIdx + 1} from ${getDeviceInfo()}`, 'system');
+    showToast(`Project "${moved.title}" moved ${direction}.`);
+  };
+
+  const moveThought = (index: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? index - 1 : index + 1;
+    const list = config.unfilteredThoughts || [];
+    if (targetIdx < 0 || targetIdx >= list.length) return;
+    const nextList = [...list];
+    const [moved] = nextList.splice(index, 1);
+    nextList.splice(targetIdx, 0, moved);
+    const updated = { ...config, unfilteredThoughts: nextList };
+    setConfig(updated);
+    saveStoredConfig(updated);
+    addActivityLog('Reordered Thoughts', `Moved reflection to position #${targetIdx + 1} from ${getDeviceInfo()}`, 'system');
+    showToast(`Thought moved ${direction}.`);
+  };
+
+  // Change Owner Password via Firebase Authentication (Re-authenticate + min 10 chars)
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    const stored = getAdminPasscode();
-    if (currentPass.trim() !== stored.trim()) {
-      showToast('Current passcode is incorrect.', 'error');
+    if (!currentPass) {
+      showToast('Please enter your current password.', 'error');
       return;
     }
-    if (newPass.length < 4) {
-      showToast('New passcode must be at least 4 characters.', 'error');
+    if (newPass.length < 10) {
+      showToast('New password must be at least 10 characters long.', 'error');
       return;
     }
     if (newPass !== confirmPass) {
-      showToast('New passcodes do not match.', 'error');
+      showToast('New passwords do not match.', 'error');
       return;
     }
 
-    setAdminPasscode(newPass.trim());
-    setCurrentPass('');
-    setNewPass('');
-    setConfirmPass('');
-    showToast('Secret owner passcode updated successfully!');
+    try {
+      await changeOwnerPassword(currentPass, newPass, confirmPass);
+      setCurrentPass('');
+      setNewPass('');
+      setConfirmPass('');
+      showToast('Owner password successfully updated! Keep it safe.');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to update password. Verify current password.', 'error');
+    }
+  };
+
+  const handleOwnerLogout = async () => {
+    try {
+      await logoutOwner();
+    } catch {
+      // fallback
+    }
+    adminSignOut();
+    onClose();
+    showToast('Signed out of Smoky Zone Owner Studio.');
   };
 
   if (!isOpen) return null;
@@ -634,6 +801,17 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
             }`}
           >
             <Shield className="w-3.5 h-3.5" /> Passcode & Cloud
+          </button>
+
+          <button
+            onClick={() => setActiveTab('activity')}
+            className={`px-3 py-2 text-xs font-medium rounded-lg flex items-center gap-2 whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'activity'
+                ? 'bg-[#1E90FF] text-white shadow'
+                : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" /> Activity Log ({config.activityLogs?.length || 0})
           </button>
         </div>
 
@@ -1187,38 +1365,175 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
                   Smoky Zone Official Selection ({config.playlist.length} Tracks)
                 </h4>
 
-                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                  {config.playlist.map((track, idx) => (
-                    <div
-                      key={track.id}
-                      className="p-3 rounded-xl bg-[#0D182F] border border-white/5 flex items-center justify-between gap-3 text-left"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="text-xs font-mono text-slate-400 w-5 flex-shrink-0">
-                          {idx + 1 < 10 ? `0${idx + 1}` : idx + 1}
-                        </span>
-                        <div className="truncate">
-                          <p className="text-white text-xs font-bold truncate">{track.title}</p>
-                          <p className="text-[11px] text-slate-400 truncate">
-                            {track.artist} · <span className="text-[#1E90FF]">{track.genre}</span>
-                          </p>
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {config.playlist.map((track, idx) => {
+                    const isEditing = editingTrackId === track.id;
+                    const needsReview =
+                      track.tag?.toLowerCase().includes('review') ||
+                      track.title?.toLowerCase().includes('review');
+
+                    if (isEditing) {
+                      return (
+                        <div
+                          key={track.id}
+                          className="p-3.5 rounded-xl bg-[#091224] border border-[#1E90FF]/50 space-y-3 text-left"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-mono text-[#1E90FF] font-bold">
+                              Edit Track #{idx + 1 < 10 ? `0${idx + 1}` : idx + 1}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">ID: {track.id}</span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <label className="text-[10px] font-mono text-slate-400 uppercase block mb-0.5">
+                                Title
+                              </label>
+                              <input
+                                type="text"
+                                value={editTrackTitle}
+                                onChange={(e) => setEditTrackTitle(e.target.value)}
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-mono text-slate-400 uppercase block mb-0.5">
+                                Artist
+                              </label>
+                              <input
+                                type="text"
+                                value={editTrackArtist}
+                                onChange={(e) => setEditTrackArtist(e.target.value)}
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-mono text-slate-400 uppercase block mb-0.5">
+                                Genre
+                              </label>
+                              <input
+                                type="text"
+                                value={editTrackGenre}
+                                onChange={(e) => setEditTrackGenre(e.target.value)}
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none"
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[10px] font-mono text-slate-400 uppercase block mb-0.5">
+                                  Duration
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editTrackDuration}
+                                  onChange={(e) => setEditTrackDuration(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 rounded-lg bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-mono text-slate-400 uppercase block mb-0.5">
+                                  Tag
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editTrackTag}
+                                  onChange={(e) => setEditTrackTag(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 rounded-lg bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              onClick={() => handleSaveEditTrack(track.id)}
+                              className="px-3 py-1.5 rounded-lg bg-[#1E90FF] hover:bg-[#1873cc] text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow"
+                            >
+                              <Check className="w-3.5 h-3.5" /> Save Changes
+                            </button>
+                            <button
+                              onClick={() => setEditingTrackId(null)}
+                              className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-xs cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={track.id}
+                        className="p-3 rounded-xl bg-[#0D182F] border border-white/5 hover:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left transition-colors"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="text-xs font-mono text-slate-400 w-5 flex-shrink-0">
+                            {idx + 1 < 10 ? `0${idx + 1}` : idx + 1}
+                          </span>
+                          <div className="truncate">
+                            <div className="flex items-center gap-2">
+                              <p className="text-white text-xs font-bold truncate">{track.title}</p>
+                              {needsReview && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30 flex-shrink-0">
+                                  ⚠️ Needs Review
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 truncate">
+                              {track.artist} · <span className="text-[#1E90FF]">{track.genre}</span> ·{' '}
+                              <span className="font-mono text-slate-300">{track.duration}</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-center">
+                          <span className="text-[10px] font-mono text-slate-400 hidden sm:inline-block">
+                            {track.tag}
+                          </span>
+
+                          <button
+                            onClick={() => handleStartEditTrack(track)}
+                            className="px-2.5 py-1 rounded-lg bg-[#1E90FF]/15 hover:bg-[#1E90FF]/30 text-[#1E90FF] border border-[#1E90FF]/30 text-xs flex items-center gap-1 cursor-pointer"
+                            title="Edit Title, Artist, Genre, Duration"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span className="text-[11px]">Edit</span>
+                          </button>
+
+                          <label
+                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Replace MP3 Audio File"
+                          >
+                            <input
+                              type="file"
+                              accept="audio/*"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) handleReplaceTrackAudio(track.id, f);
+                              }}
+                              className="hidden"
+                              disabled={isUploading}
+                            />
+                            <Upload className="w-3 h-3" />
+                            <span className="text-[11px]">Replace Audio</span>
+                          </label>
+
+                          <button
+                            onClick={() => handleDeleteTrack(track.id)}
+                            className="w-7 h-7 rounded-lg bg-rose-950/40 hover:bg-rose-900 border border-rose-500/20 text-rose-300 flex items-center justify-center transition-colors cursor-pointer"
+                            title="Delete track"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="text-[10px] font-mono text-slate-400 hidden sm:inline-block">
-                          {track.tag}
-                        </span>
-                        <button
-                          onClick={() => handleDeleteTrack(track.id)}
-                          className="w-7 h-7 rounded-lg bg-rose-950/40 hover:bg-rose-900 border border-rose-500/20 text-rose-300 flex items-center justify-center transition-colors cursor-pointer"
-                          title="Delete track"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1781,54 +2096,100 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
             </div>
           )}
 
-          {/* TAB 7: PASSCODE & CLOUD BACKUP */}
+          {/* TAB 7: OWNER AUTHENTICATION & SECURITY */}
           {activeTab === 'security' && (
             <div className="space-y-6">
-              {/* Passcode update */}
+              {/* Owner Account Session & Auto-Logout Notice */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-[#0D182F] border border-white/10 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center">
+                      <UserCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+                        Authenticated Owner Account
+                      </h3>
+                      <p className="text-xs text-slate-300 font-mono">
+                        {auth.currentUser?.email || 'Owner Account Verified'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleOwnerLogout}
+                    className="self-start sm:self-auto px-4 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-rose-300 hover:text-white text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer shadow"
+                  >
+                    <LogOut className="w-3.5 h-3.5" /> Sign Out of Studio
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-[#050811] border border-white/5 space-y-1">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase block">Inactivity Auto-Logout</span>
+                    <p className="text-white font-medium">15 Minutes of Inactivity</p>
+                    <p className="text-[11px] text-slate-400">Protects your account if left unattended on any device.</p>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-[#050811] border border-white/5 space-y-1">
+                    <span className="text-[10px] font-mono text-slate-400 uppercase block">Public Visitor Access</span>
+                    <p className="text-white font-medium">Completely Hidden</p>
+                    <p className="text-[11px] text-slate-400">Lock icon and admin portal are only visible to the signed-in owner.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Password update (Firebase Auth Re-authentication + Min 10 chars) */}
               <div className="p-4 sm:p-5 rounded-2xl bg-[#0D182F] border border-white/10 space-y-4">
                 <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono flex items-center gap-2">
-                  <KeyRound className="w-4 h-4 text-[#1E90FF]" /> Change Owner Secret Passcode
+                  <KeyRound className="w-4 h-4 text-[#1E90FF]" /> Change Owner Password
                 </h3>
                 <p className="text-xs text-slate-300">
-                  Default passcode is <code className="text-[#1E90FF] font-mono">smork2026</code>. You can set your private PIN to open this control panel on your phone or laptop.
+                  Changing your password requires re-authenticating with your current password first, then entering your new strong password (minimum 10 characters) twice.
                 </p>
 
-                <form onSubmit={handleChangePasscode} className="space-y-3 max-w-sm">
+                <form onSubmit={handleChangePassword} className="space-y-3 max-w-sm">
                   <div>
                     <label className="block text-xs font-mono text-slate-400 uppercase mb-1">
-                      Current Passcode
+                      Current Password (Re-authenticate)
                     </label>
                     <input
                       type="password"
                       value={currentPass}
                       onChange={(e) => setCurrentPass(e.target.value)}
-                      placeholder="smork2026"
+                      placeholder="Enter current password"
+                      required
                       className="w-full px-3.5 py-2 rounded-xl bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none font-mono"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-mono text-slate-400 uppercase mb-1">
-                      New Passcode
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-mono text-slate-400 uppercase">
+                        New Password
+                      </label>
+                      <span className="text-[10px] font-mono text-[#1E90FF]">Min 10 characters</span>
+                    </div>
                     <input
                       type="password"
                       value={newPass}
                       onChange={(e) => setNewPass(e.target.value)}
-                      placeholder="At least 4 characters"
+                      placeholder="Enter new strong password"
+                      required
                       className="w-full px-3.5 py-2 rounded-xl bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none font-mono"
                     />
                   </div>
 
                   <div>
                     <label className="block text-xs font-mono text-slate-400 uppercase mb-1">
-                      Confirm New Passcode
+                      Confirm New Password
                     </label>
                     <input
                       type="password"
                       value={confirmPass}
                       onChange={(e) => setConfirmPass(e.target.value)}
-                      placeholder="Confirm new passcode"
+                      placeholder="Re-enter new password"
+                      required
                       className="w-full px-3.5 py-2 rounded-xl bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none font-mono"
                     />
                   </div>
@@ -1837,7 +2198,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
                     type="submit"
                     className="py-2.5 px-5 rounded-xl bg-[#1E90FF] hover:bg-[#1873cc] text-white text-xs font-semibold uppercase tracking-wider transition-all shadow cursor-pointer"
                   >
-                    Update Passcode
+                    Update Password via Firebase Auth
                   </button>
                 </form>
               </div>
@@ -1889,6 +2250,139 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
                     className="px-4 py-2.5 rounded-xl bg-rose-950/40 hover:bg-rose-900 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-2 transition-colors cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5" /> Reset to Factory Defaults
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 8: ACTIVITY LOG (IMPORT & AUDIT TRAIL) */}
+          {activeTab === 'activity' && (
+            <div className="space-y-6 text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-[#1E90FF]" /> Smoky Zone System & Catalog Activity Log
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Real-time audit trail of catalog imports, media replacements, and configuration events.
+                  </p>
+                </div>
+
+                {/* Filter buttons */}
+                <div className="flex items-center gap-1 p-1 bg-[#050811] rounded-xl border border-white/10 text-xs font-mono">
+                  {(['all', 'music', 'media', 'system'] as const).map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setActivityFilter(cat)}
+                      className={`px-2.5 py-1 rounded-lg capitalize transition-colors cursor-pointer ${
+                        activityFilter === cat
+                          ? 'bg-[#1E90FF] text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Log List */}
+              <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                {(!config.activityLogs || config.activityLogs.length === 0) ? (
+                  <div className="p-8 text-center bg-[#0D182F] rounded-2xl border border-white/5 text-slate-400 text-xs font-mono">
+                    No activity logs recorded yet.
+                  </div>
+                ) : (
+                  config.activityLogs
+                    .filter((log) => activityFilter === 'all' || log.type === activityFilter)
+                    .map((log) => {
+                      const typeColors = {
+                        music: 'bg-[#1E90FF]/20 text-[#1E90FF] border-[#1E90FF]/30',
+                        media: 'bg-purple-900/40 text-purple-300 border-purple-500/30',
+                        system: 'bg-emerald-900/40 text-emerald-300 border-emerald-500/30',
+                        security: 'bg-amber-900/40 text-amber-300 border-amber-500/30',
+                      };
+                      const dateStr = new Date(log.timestamp).toLocaleString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      });
+
+                      return (
+                        <div
+                          key={log.id}
+                          className="p-3.5 rounded-xl bg-[#0D182F] border border-white/5 space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-mono border uppercase font-bold ${
+                                  typeColors[log.type] || typeColors.system
+                                }`}
+                              >
+                                {log.type}
+                              </span>
+                              <span className="text-white text-xs font-bold font-['Outfit',sans-serif]">
+                                {log.title}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-500 flex-shrink-0">
+                              {dateStr}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-300 leading-relaxed font-mono">
+                            {log.details}
+                          </p>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+
+              {/* Add Custom Note Box */}
+              <div className="p-4 rounded-2xl bg-[#0D182F] border border-white/10 space-y-3">
+                <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider font-mono flex items-center gap-2">
+                  <FileText className="w-3.5 h-3.5 text-[#1E90FF]" /> Record Management Note
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    placeholder="Log Title (e.g. Verified New MP3)"
+                    value={customLogTitle}
+                    onChange={(e) => setCustomLogTitle(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Details / Description"
+                    value={customLogDetails}
+                    onChange={(e) => setCustomLogDetails(e.target.value)}
+                    className="w-full sm:col-span-2 px-3 py-2 rounded-xl bg-[#050811] border border-white/10 text-white text-xs focus:border-[#1E90FF] focus:outline-none"
+                  />
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    onClick={handleAddCustomActivityLog}
+                    className="px-4 py-2 rounded-xl bg-[#1E90FF] hover:bg-[#1873cc] text-white text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5 transition-all shadow"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Post Activity Note
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Clear all activity logs?')) {
+                        const updated = { ...config, activityLogs: [] };
+                        setConfig(updated);
+                        saveStoredConfig(updated);
+                        showToast('Activity logs cleared.');
+                      }
+                    }}
+                    className="text-[11px] font-mono text-slate-500 hover:text-rose-400 transition-colors"
+                  >
+                    Clear History
                   </button>
                 </div>
               </div>

@@ -139,10 +139,19 @@ export const ShortVideoPreviewCard: React.FC<ShortVideoPreviewCardProps> = ({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="group rounded-2xl overflow-hidden bg-[#0F1D38]/60 border border-white/10 hover:border-[#1E90FF]/60 hover:bg-[#0F1D38] transition-all cursor-pointer flex flex-col justify-between shadow-lg"
+      aria-label={`Play ${clip.title} with sound`}
+      className="group rounded-2xl overflow-hidden bg-[#0F1D38]/60 border border-white/10 hover:border-[#1E90FF]/60 hover:bg-[#0F1D38] transition-all cursor-pointer flex flex-col justify-between shadow-lg focus:outline-none focus:ring-2 focus:ring-[#1E90FF]"
     >
       {/* 5-Second Looping Video Container */}
       <div className="h-52 bg-black relative overflow-hidden flex items-center justify-center">

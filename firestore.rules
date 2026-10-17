@@ -6,20 +6,32 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    // Public website content - read allowed for all visitors, write allowed with valid ID
+    // Public website content - read allowed for all visitors, write only for authenticated owner
     match /site_content/{settingId} {
-      allow read: if isValidId(settingId);
-      allow write: if isValidId(settingId);
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
 
-    // Public media storage - read allowed for all visitors, write allowed with valid ID
+    // Public media storage - read allowed for all visitors, write only for authenticated owner
     match /media_items/{mediaId} {
-      allow read: if isValidId(mediaId);
-      allow write: if isValidId(mediaId);
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // System configuration (owner setup verification & initial admin registration)
+    match /system/{docId} {
+      allow read: if true;
+      // Allow first-time registration of owner account, or modifications by authenticated owner
+      allow write: if isAuthenticated() || (docId == 'admin_status' && !exists(/databases/$(database)/documents/system/admin_status));
+    }
+
+    // Activity logs - read and write only for authenticated owner
+    match /activity_logs/{logId} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

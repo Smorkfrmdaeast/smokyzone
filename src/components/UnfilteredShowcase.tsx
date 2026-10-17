@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { fileToBase64, setStoredPhoto } from '../utils/photoStorage';
 import { getMediaItem, getStoredConfig } from '../utils/siteStore';
+import { mediaManager } from '../utils/mediaManager';
 
 export const UnfilteredShowcase: React.FC = () => {
   const [activeView, setActiveView] = useState<'walkin' | 'portrait' | 'manifesto'>('walkin');
@@ -69,11 +70,23 @@ export const UnfilteredShowcase: React.FC = () => {
       }
     };
 
+    const handlePauseWalkin = () => {
+      if (audioRef.current) audioRef.current.pause();
+      setIsPlayingAtmosphere(false);
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      setAmbientBarHeights([8, 12, 10, 14, 10, 8, 12, 8]);
+    };
+
     window.addEventListener('smokyzone_media_change', handleMediaChange);
     window.addEventListener('smokyzone_config_change', handleConfigChange);
+    window.addEventListener('smokyzone_pause_walkin', handlePauseWalkin);
     return () => {
       window.removeEventListener('smokyzone_media_change', handleMediaChange);
       window.removeEventListener('smokyzone_config_change', handleConfigChange);
+      window.removeEventListener('smokyzone_pause_walkin', handlePauseWalkin);
     };
   }, []);
 
@@ -94,6 +107,7 @@ export const UnfilteredShowcase: React.FC = () => {
     if (isPlayingAtmosphere) {
       if (audioRef.current) audioRef.current.pause();
       setIsPlayingAtmosphere(false);
+      mediaManager.onWalkinStop();
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
         animFrameRef.current = null;
@@ -101,6 +115,7 @@ export const UnfilteredShowcase: React.FC = () => {
       setAmbientBarHeights([8, 12, 10, 14, 10, 8, 12, 8]);
     } else {
       setIsPlayingAtmosphere(true);
+      mediaManager.onWalkinPlay();
       if (audioRef.current) {
         audioRef.current.play().catch(() => {});
       }
