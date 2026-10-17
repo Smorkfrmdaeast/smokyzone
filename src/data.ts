@@ -414,7 +414,7 @@ export const CELEBRITY_PLAYLIST: MusicTrack[] = [
     tag: 'Needs Review',
   },
   {
-    id: 'track-3',
+    id: 'track-4',
     title: 'Dior',
     artist: 'Pop Smoke',
     genre: 'Brooklyn Drill',
@@ -425,7 +425,7 @@ export const CELEBRITY_PLAYLIST: MusicTrack[] = [
     tag: 'Brooklyn Drill',
   },
   {
-    id: 'track-4',
+    id: 'track-5',
     title: 'Declan Rice',
     artist: 'ODUMODUBLVCK',
     genre: 'Afro-Drill / Okporoko',
@@ -436,7 +436,7 @@ export const CELEBRITY_PLAYLIST: MusicTrack[] = [
     tag: 'Afro-Drill',
   },
   {
-    id: 'track-5',
+    id: 'track-6',
     title: 'In A Minute',
     artist: 'Lil Baby',
     genre: 'Melodic Trap',
@@ -447,7 +447,7 @@ export const CELEBRITY_PLAYLIST: MusicTrack[] = [
     tag: 'Melodic Trap',
   },
   {
-    id: 'track-6',
+    id: 'track-7',
     title: 'Big Drip',
     artist: 'Fivio Foreign',
     genre: 'Brooklyn Drill',
@@ -458,7 +458,7 @@ export const CELEBRITY_PLAYLIST: MusicTrack[] = [
     tag: 'Brooklyn Drill',
   },
   {
-    id: 'track-7',
+    id: 'track-8',
     title: 'Do I',
     artist: 'Phyno',
     genre: 'Igbo Rap / Afro-Fusion',
@@ -469,7 +469,7 @@ export const CELEBRITY_PLAYLIST: MusicTrack[] = [
     tag: 'Igbo Rap',
   },
   {
-    id: 'track-8',
+    id: 'track-9',
     title: '11:11',
     artist: 'JeriQ',
     genre: 'Indigenous Drill',
@@ -480,7 +480,7 @@ export const CELEBRITY_PLAYLIST: MusicTrack[] = [
     tag: 'Indigenous Drill',
   },
   {
-    id: 'track-9',
+    id: 'track-10',
     title: '11:11 Instrumental (Needs Review)',
     artist: 'JeriQ & Insane Chips',
     genre: 'Trap Instrumental',
@@ -491,7 +491,7 @@ export const CELEBRITY_PLAYLIST: MusicTrack[] = [
     tag: 'Needs Review',
   },
   {
-    id: 'track-10',
+    id: 'track-11',
     title: 'Shake It',
     artist: 'Kay Flock ft. Cardi B, Dougie B & Bory300',
     genre: 'Bronx Drill',

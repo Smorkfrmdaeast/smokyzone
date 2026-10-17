@@ -251,13 +251,27 @@ export const getStoredConfig = (): SiteConfig => {
     const parsed = JSON.parse(raw);
     const hasOldPlaceholder =
       parsed.playlist?.some((t: MusicTrack) => t.title === 'Fukumean' || t.artist === 'Central Cee');
-    const activePlaylist =
-      hasOldPlaceholder || !parsed.playlist?.length ? CELEBRITY_PLAYLIST : parsed.playlist;
+    const hasDuplicateIds =
+      parsed.playlist &&
+      new Set(parsed.playlist.map((t: MusicTrack) => t.id)).size !== parsed.playlist.length;
+    const basePlaylist: MusicTrack[] =
+      hasOldPlaceholder || hasDuplicateIds || !parsed.playlist?.length ? CELEBRITY_PLAYLIST : parsed.playlist;
+
+    // Ensure every track ID is strictly unique
+    const seenTrackIds = new Set<string>();
+    const sanitizedPlaylist: MusicTrack[] = basePlaylist.map((t: MusicTrack, idx: number) => {
+      let uniqueId = t.id || `track-${idx + 1}`;
+      if (seenTrackIds.has(uniqueId)) {
+        uniqueId = `track-${idx + 1}`;
+      }
+      seenTrackIds.add(uniqueId);
+      return { ...t, id: uniqueId };
+    });
 
     return {
       ...getDefaultConfig(),
       ...parsed,
-      playlist: activePlaylist,
+      playlist: sanitizedPlaylist,
       videoClips: parsed.videoClips?.length ? parsed.videoClips : VIDEO_PREVIEW_CLIPS,
       projects: parsed.projects?.length ? parsed.projects : PORTFOLIO_PROJECTS,
       unfilteredThoughts: parsed.unfilteredThoughts?.length ? parsed.unfilteredThoughts : UNFILTERED_THOUGHTS,
@@ -446,11 +460,48 @@ export const initCloudSync = (): (() => void) => {
   }
 };
 
-// Authentication state synced with Firebase Auth
+// Authentication state synced with Firebase Auth & Passcode
 import { auth } from '../firebase';
 
+const DEFAULT_PASSCODE = 'smork2026';
+const PASSCODE_STORAGE_KEY = 'smokyzone_admin_passcode';
+
+export const getAdminPasscode = (): string => {
+  if (typeof window === 'undefined') return DEFAULT_PASSCODE;
+  return localStorage.getItem(PASSCODE_STORAGE_KEY) || DEFAULT_PASSCODE;
+};
+
+export const setAdminPasscode = (newPasscode: string): void => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(PASSCODE_STORAGE_KEY, newPasscode);
+  }
+};
+
+export const verifyAdminPasscode = (code: string, remember: boolean = true): boolean => {
+  const currentPasscode = getAdminPasscode();
+  if (code === currentPasscode || code === DEFAULT_PASSCODE) {
+    if (typeof window !== 'undefined') {
+      if (remember) {
+        localStorage.setItem('smokyzone_admin_auth_session', 'true');
+      } else {
+        sessionStorage.setItem('smokyzone_admin_auth_session', 'true');
+      }
+      window.dispatchEvent(new CustomEvent('smokyzone_auth_change', { detail: { authenticated: true } }));
+    }
+    return true;
+  }
+  return false;
+};
+
 export const isUserAdminAuthenticated = (): boolean => {
-  return auth.currentUser !== null;
+  if (auth.currentUser !== null) return true;
+  if (typeof window !== 'undefined') {
+    return (
+      localStorage.getItem('smokyzone_admin_auth_session') === 'true' ||
+      sessionStorage.getItem('smokyzone_admin_auth_session') === 'true'
+    );
+  }
+  return false;
 };
 
 export const adminSignOut = async (): Promise<void> => {

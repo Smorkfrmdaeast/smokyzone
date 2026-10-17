@@ -565,7 +565,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
             const needsReview = track.tag?.toLowerCase().includes('review') || track.title?.toLowerCase().includes('review');
             return (
               <button
-                key={track.id}
+                key={`${track.id}-${idx}`}
                 onClick={() => changeTrack(idx)}
                 className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between text-xs transition-all cursor-pointer ${
                   isCurrent

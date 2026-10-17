@@ -1375,7 +1375,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
                     if (isEditing) {
                       return (
                         <div
-                          key={track.id}
+                          key={`${track.id}-${idx}`}
                           className="p-3.5 rounded-xl bg-[#091224] border border-[#1E90FF]/50 space-y-3 text-left"
                         >
                           <div className="flex items-center justify-between">
@@ -1468,7 +1468,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
 
                     return (
                       <div
-                        key={track.id}
+                        key={`${track.id}-${idx}`}
                         className="p-3 rounded-xl bg-[#0D182F] border border-white/5 hover:border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left transition-colors"
                       >
                         <div className="flex items-center gap-3 min-w-0">
