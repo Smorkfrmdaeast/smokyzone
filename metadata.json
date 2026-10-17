@@ -1,0 +1,7 @@
+{
+  "name": "Smoky Zone",
+  "description": "Personal creative portfolio and digital hub for Smoky Zone featuring work showcases, hobbies, neon audio visualizer, and contact channels.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

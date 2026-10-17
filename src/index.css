@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #050811;
+    color: #94a3b8;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Outfit', sans-serif;
+    color: #f8fafc;
+  }
+}
+
+/* Electric Blue Accents & Subtle Lighting */
+.electric-glow {
+  box-shadow: 0 0 25px rgba(30, 144, 255, 0.2);
+}
+
+.electric-glow-strong {
+  box-shadow: 0 0 35px rgba(30, 144, 255, 0.35);
+}
+
+.electric-border {
+  border-color: rgba(30, 144, 255, 0.25);
+}
+
+.electric-border:hover {
+  border-color: rgba(30, 144, 255, 0.6);
+}
+
+/* Equalizer Visualizer Bars */
+.sound-bar {
+  width: 10px;
+  background: linear-gradient(to top, #1E90FF, #0052cc 85%);
+  border-radius: 3px;
+  transition: height 0.08s ease-out;
+  box-shadow: 0 0 8px rgba(30, 144, 255, 0.5);
+}
+
+/* Real Photo Natural Rendering (No Artificial Tints) */
+.photo-natural {
+  filter: none !important;
+  color-interpolation-filters: auto;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #050811;
+}
+::-webkit-scrollbar-thumb {
+  background: #112240;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #1E90FF;
+}

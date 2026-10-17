@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1500" width="100%" height="100%">
+  <defs>
+    <linearGradient id="posterBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#050811" />
+      <stop offset="40%" stop-color="#0a1226" />
+      <stop offset="70%" stop-color="#070c1a" />
+      <stop offset="100%" stop-color="#020409" />
+    </linearGradient>
+    <linearGradient id="streetGlow" x1="0.5" y1="1" x2="0.5" y2="0.4">
+      <stop offset="0%" stop-color="#1E90FF" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#1E90FF" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="100%" height="100%" fill="url(#posterBg)" />
+  <rect width="100%" height="100%" fill="url(#streetGlow)" />
+
+  <!-- Road / Street Horizon lines -->
+  <path d="M 100 1500 L 450 650 L 550 650 L 900 1500 Z" fill="#060b17" stroke="#1E90FF" stroke-opacity="0.15" stroke-width="2" />
+  <line x1="500" y1="650" x2="500" y2="1500" stroke="#1E90FF" stroke-opacity="0.2" stroke-dasharray="25,25" stroke-width="4" />
+
+  <!-- Silhouette of Smork Walking Away Down the Road (from behind) -->
+  <g transform="translate(500, 750)">
+    <!-- Head & Cap -->
+    <ellipse cx="0" cy="-210" rx="28" ry="34" fill="#020408" />
+    <path d="M -30 -220 Q 0 -245 30 -220 Q 38 -205 28 -200 Q 0 -210 -28 -200 Z" fill="#0d1b33" />
+    <!-- Blue Sweatshirt Shoulders & Torso -->
+    <path d="M -70 -170 L -45 -185 L 0 -195 L 45 -185 L 70 -170 L 60 -50 L -60 -50 Z" fill="#1E90FF" />
+    <!-- Arms -->
+    <path d="M -70 -170 L -80 -70 L -60 -40 L -50 -70 Z" fill="#1873cc" />
+    <path d="M 70 -170 L 80 -70 L 65 -40 L 50 -70 Z" fill="#1873cc" />
+    <!-- Blue Bandana Hanging from Back Pocket -->
+    <path d="M 25 15 L 45 40 L 35 75 L 15 45 Z" fill="#0052cc" />
+    <!-- Jeans / Legs walking -->
+    <path d="M -50 -50 L -15 -50 L -25 120 L -35 120 Z" fill="#1e293b" />
+    <path d="M 15 -50 L 50 -50 L 40 135 L 28 135 Z" fill="#172033" />
+    <!-- Sneakers -->
+    <ellipse cx="-30" cy="125" rx="14" ry="7" fill="#f8fafc" />
+    <ellipse cx="34" cy="140" rx="14" ry="7" fill="#e2e8f0" />
+  </g>
+
+  <!-- Top Left: Crown + SMORK UNFILTERED -->
+  <g transform="translate(70, 90)">
+    <!-- Crown icon -->
+    <path d="M 0 35 L 12 12 L 25 28 L 38 12 L 50 35 Z" fill="#1E90FF" />
+    <text x="0" y="85" font-family="'Outfit', sans-serif" font-size="46" font-weight="900" font-style="italic" fill="#1E90FF" letter-spacing="2">
+      SMORK
+    </text>
+    <text x="0" y="130" font-family="'Outfit', sans-serif" font-size="42" font-weight="900" font-style="italic" fill="#FFFFFF" letter-spacing="3">
+      UNFILTERED
+    </text>
+  </g>
+
+  <!-- Main Headline Quote -->
+  <g transform="translate(70, 360)">
+    <!-- Opening Quote Marks -->
+    <text x="0" y="0" font-family="'Outfit', serif" font-size="80" font-weight="900" fill="#1E90FF">“</text>
+    
+    <text x="0" y="80" font-family="'Outfit', sans-serif" font-size="64" font-weight="900" font-style="italic" fill="#FFFFFF" letter-spacing="1">
+      NOBODY
+    </text>
+    <text x="0" y="160" font-family="'Outfit', sans-serif" font-size="64" font-weight="900" font-style="italic" fill="#FFFFFF" letter-spacing="1">
+      REALLY KNOWS
+    </text>
+    <text x="0" y="240" font-family="'Outfit', sans-serif" font-size="64" font-weight="900" font-style="italic" fill="#FFFFFF" letter-spacing="1">
+      WHAT YOU'RE
+    </text>
+    <text x="0" y="325" font-family="'Outfit', sans-serif" font-size="66" font-weight="900" font-style="italic" fill="#1E90FF" letter-spacing="1">
+      GOING THROUGH.
+    </text>
+    
+    <!-- Brush Stroke Underline -->
+    <path d="M 0 345 Q 220 335 450 350 Q 230 360 0 345 Z" fill="#1E90FF" />
+
+    <!-- Closing Quote Marks -->
+    <text x="465" y="380" font-family="'Outfit', serif" font-size="80" font-weight="900" fill="#1E90FF">”</text>
+  </g>
+
+  <!-- Sub-Manifesto -->
+  <g transform="translate(70, 840)">
+    <text x="0" y="0" font-family="'Plus Jakarta Sans', sans-serif" font-size="22" font-weight="800" fill="#FFFFFF" letter-spacing="4">
+      SAME PEOPLE.
+    </text>
+    <text x="0" y="38" font-family="'Plus Jakarta Sans', sans-serif" font-size="22" font-weight="800" fill="#FFFFFF" letter-spacing="4">
+      DIFFERENT BATTLES.
+    </text>
+    <text x="0" y="78" font-family="'Plus Jakarta Sans', sans-serif" font-size="22" font-weight="800" fill="#1E90FF" letter-spacing="4">
+      REAL LIFE.
+    </text>
+  </g>
+
+  <!-- Footer Elements -->
+  <g transform="translate(70, 1400)">
+    <!-- Hashtag -->
+    <line x1="0" y1="-25" x2="60" y2="-25" stroke="#1E90FF" stroke-width="4" />
+    <text x="0" y="0" font-family="'Outfit', sans-serif" font-size="28" font-weight="900" font-style="italic" fill="#FFFFFF" letter-spacing="2">
+      #SMORKUNFILTERED
+    </text>
+    
+    <!-- Social Handle -->
+    <text x="0" y="35" font-family="'Plus Jakarta Sans', sans-serif" font-size="18" font-weight="700" fill="#94A3B8" letter-spacing="2">
+      SMORKFRMDAEAST 💙
+    </text>
+  </g>
+
+  <!-- Right Footer: Crown + NO FILTER. JUST SMORK. -->
+  <g transform="translate(720, 1380)">
+    <path d="M 60 0 L 70 -16 L 80 -4 L 90 -16 L 100 0 Z" fill="#1E90FF" />
+    <text x="180" y="30" font-family="'Outfit', sans-serif" font-size="26" font-weight="900" font-style="italic" fill="#FFFFFF" text-anchor="end" letter-spacing="2">
+      NO FILTER.
+    </text>
+    <text x="180" y="60" font-family="'Outfit', sans-serif" font-size="26" font-weight="900" font-style="italic" fill="#1E90FF" text-anchor="end" letter-spacing="2">
+      JUST SMORK.
+    </text>
+  </g>
+</svg>
