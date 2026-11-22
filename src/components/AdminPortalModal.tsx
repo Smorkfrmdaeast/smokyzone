@@ -330,8 +330,9 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
     }
 
     const newId = `track_${Date.now()}`;
+    let uploadedAudioSrc: string | undefined;
     if (newTrackAudioSrc) {
-      await setMediaItem(`audio_track_${newId}`, newTrackAudioSrc, 'audio/mp3');
+      uploadedAudioSrc = await setMediaItem(`audio_track_${newId}`, newTrackAudioSrc, 'audio/mpeg');
     }
 
     const newTrack: MusicTrack = {
@@ -340,7 +341,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
       artist: newTrackArtist.trim() || 'Smork',
       genre: newTrackGenre.trim() || 'Official Drill',
       duration: '3:20',
-      audioSrc: newTrackAudioSrc || undefined,
+      audioSrc: uploadedAudioSrc,
       tag: newTrackTag.trim() || 'Exclusive',
       energyVibe: 'High Energy Official Anthem',
     };
@@ -408,9 +409,9 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
     setIsUploading(true);
     try {
       const base64 = await fileToBase64(file);
-      await setMediaItem(`audio_track_${trackId}`, base64, 'audio/mp3');
+      const uploadedAudioSrc = await setMediaItem(`audio_track_${trackId}`, base64, file.type || 'audio/mpeg');
       const updatedPlaylist = config.playlist.map((t) =>
-        t.id === trackId ? { ...t, audioSrc: base64 } : t
+        t.id === trackId ? { ...t, audioSrc: uploadedAudioSrc } : t
       );
       const updated = {
         ...config,
