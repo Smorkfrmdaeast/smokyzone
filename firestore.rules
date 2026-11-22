@@ -35,6 +35,8 @@ service cloud.firestore {
       allow create: if request.auth != null
         && !exists(ownerPath())
         && request.resource.data.owner_registered == true
+        && request.auth.token.email == 'ifeanyinuels32@gmail.com'
+        && request.resource.data.owner_email == 'ifeanyinuels32@gmail.com'
         && request.resource.data.owner_uid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'owner_registered', 'owner_uid', 'owner_email', 'createdAt', 'createdDevice'
