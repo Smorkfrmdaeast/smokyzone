@@ -356,29 +356,35 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     }
   };
 
-  const changeTrack = (index: number) => {
+  const changeTrack = async (index: number) => {
     const wasPlaying = isPlaying;
-    if (isPlaying) {
-      if (audioRef.current) audioRef.current.pause();
-      stopSynthesizedBeat();
-    }
-
-    const safeIndex = index < playlist.length ? index : 0;
+    if (audioRef.current) audioRef.current.pause();
+    stopSynthesizedBeat();
+    const safeIndex = index >= 0 && index < playlist.length ? index : 0;
+    const nextTrack = playlist[safeIndex];
     setCurrentTrackIndex(safeIndex);
     setTrackProgress(0);
+    setCustomAudioSrc(null);
 
-    if (wasPlaying) {
-      window.dispatchEvent(new CustomEvent('smokyzone_music_playing'));
-      setTimeout(() => {
-        const nextTrack = playlist[safeIndex];
-        const nextSrc = nextTrack.audioSrc;
+    if (wasPlaying && nextTrack) {
+      try {
+        const nextSrc = await getMediaItem(`audio_track_${nextTrack.id}`) || nextTrack.audioSrc || null;
+        setCustomAudioSrc(nextSrc);
         if (nextSrc && audioRef.current) {
           audioRef.current.src = nextSrc;
-          audioRef.current.play().catch(() => playSynthesizedBeat());
+          audioRef.current.volume = isMuted ? 0 : volume;
+          await audioRef.current.play();
+          setIsPlaying(true);
+          startVisualizer();
+          mediaManager.onMusicPlay(0);
         } else {
-          playSynthesizedBeat();
+          setIsPlaying(false);
+          stopVisualizer();
         }
-      }, 150);
+      } catch {
+        setIsPlaying(false);
+        stopVisualizer();
+      }
     }
   };
 
