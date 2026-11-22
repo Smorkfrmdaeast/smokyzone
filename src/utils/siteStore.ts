@@ -305,10 +305,16 @@ export const getStoredConfig = (): SiteConfig => {
       return { ...t, id: uniqueId };
     });
 
+    // Preserve existing uploaded tracks while adding any catalogue entries introduced by newer releases.
+    const completePlaylist = [
+      ...sanitizedPlaylist,
+      ...CELEBRITY_PLAYLIST.filter((track) => !seenTrackIds.has(track.id)),
+    ];
+
     return {
       ...getDefaultConfig(),
       ...parsed,
-      playlist: sanitizedPlaylist,
+      playlist: completePlaylist,
       videoClips: parsed.videoClips?.length ? parsed.videoClips : VIDEO_PREVIEW_CLIPS,
       projects: parsed.projects?.length ? parsed.projects : PORTFOLIO_PROJECTS,
       unfilteredThoughts: parsed.unfilteredThoughts?.length ? parsed.unfilteredThoughts : UNFILTERED_THOUGHTS,
@@ -385,10 +391,16 @@ export const initCloudSync = (): (() => void) => {
           const localConfig = getStoredConfig();
 
           if (cloudConfig) {
+            const cloudPlaylist = cloudConfig.playlist || [];
+            const cloudTrackIds = new Set(cloudPlaylist.map((track) => track.id));
+            const migratedPlaylist = [
+              ...cloudPlaylist,
+              ...CELEBRITY_PLAYLIST.filter((track) => !cloudTrackIds.has(track.id)),
+            ];
             const merged: SiteConfig = {
               ...getDefaultConfig(),
               ...cloudConfig,
-              playlist: cloudConfig.playlist?.length ? cloudConfig.playlist : localConfig.playlist,
+              playlist: migratedPlaylist.length ? migratedPlaylist : localConfig.playlist,
               videoClips: cloudConfig.videoClips?.length ? cloudConfig.videoClips : localConfig.videoClips,
               projects: cloudConfig.projects?.length ? cloudConfig.projects : localConfig.projects,
               unfilteredThoughts: cloudConfig.unfilteredThoughts?.length
