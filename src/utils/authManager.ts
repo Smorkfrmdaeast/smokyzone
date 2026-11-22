@@ -100,6 +100,9 @@ export const checkOwnerAccountStatus = async (): Promise<{ ownerExists: boolean;
 };
 
 export const createOwnerAccount = async (email: string, password: string): Promise<User> => {
+  if (email.trim().toLowerCase() !== 'ifeanyinuels32@gmail.com') {
+    throw new Error('Owner setup is restricted to the approved Smoky Zone owner email address.');
+  }
   if (password.length < 10) {
     throw new Error('Password must be at least 10 characters long.');
   }
@@ -142,6 +145,10 @@ export const loginOwner = async (email: string, password: string): Promise<User>
     throw new Error(
       `Rate limit exceeded due to multiple failed attempts. Please wait ${status.remainingSeconds}s before trying again.`
     );
+  }
+
+  if (email.trim().toLowerCase() !== 'ifeanyinuels32@gmail.com') {
+    throw new Error('This email address is not authorised for Smoky Zone owner access.');
   }
 
   try {
