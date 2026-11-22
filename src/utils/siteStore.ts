@@ -497,60 +497,22 @@ export const initCloudSync = (): (() => void) => {
   }
 };
 
-// Authentication state synced with Firebase Auth & Passcode
+// Admin access is granted only by a real Firebase Authentication session.
 import { auth } from '../firebase';
 
-const DEFAULT_PASSCODE = 'smork2026';
-const PASSCODE_STORAGE_KEY = 'smokyzone_admin_passcode';
-
-export const getAdminPasscode = (): string => {
-  if (typeof window === 'undefined') return DEFAULT_PASSCODE;
-  return localStorage.getItem(PASSCODE_STORAGE_KEY) || DEFAULT_PASSCODE;
-};
-
-export const setAdminPasscode = (newPasscode: string): void => {
-  if (typeof window !== 'undefined') {
-    localStorage.setItem(PASSCODE_STORAGE_KEY, newPasscode);
-  }
-};
-
-export const verifyAdminPasscode = (code: string, remember: boolean = true): boolean => {
-  const currentPasscode = getAdminPasscode();
-  if (code === currentPasscode || code === DEFAULT_PASSCODE) {
-    if (typeof window !== 'undefined') {
-      if (remember) {
-        localStorage.setItem('smokyzone_admin_auth_session', 'true');
-      } else {
-        sessionStorage.setItem('smokyzone_admin_auth_session', 'true');
-      }
-      window.dispatchEvent(new CustomEvent('smokyzone_auth_change', { detail: { authenticated: true } }));
-    }
-    return true;
-  }
-  return false;
-};
-
-export const isUserAdminAuthenticated = (): boolean => {
-  if (auth.currentUser !== null) return true;
-  if (typeof window !== 'undefined') {
-    return (
-      localStorage.getItem('smokyzone_admin_auth_session') === 'true' ||
-      sessionStorage.getItem('smokyzone_admin_auth_session') === 'true'
-    );
-  }
-  return false;
-};
+export const isUserAdminAuthenticated = (): boolean => auth.currentUser !== null;
 
 export const adminSignOut = async (): Promise<void> => {
   try {
     const { logoutOwner } = await import('./authManager');
     await logoutOwner();
-  } catch {
-    // fallback
+  } finally {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('smokyzone_admin_auth_session');
+      localStorage.removeItem('smokyzone_admin_auth_session');
+      window.dispatchEvent(new CustomEvent('smokyzone_auth_change', { detail: { authenticated: false } }));
+    }
   }
-  sessionStorage.removeItem('smokyzone_admin_auth_session');
-  localStorage.removeItem('smokyzone_admin_auth_session');
-  window.dispatchEvent(new CustomEvent('smokyzone_auth_change', { detail: { authenticated: false } }));
 };
 
 // Export and Import Site Config JSON
