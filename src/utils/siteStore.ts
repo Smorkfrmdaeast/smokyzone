@@ -512,7 +512,10 @@ export const initCloudSync = (): (() => void) => {
 // Admin access is granted only by a real Firebase Authentication session.
 import { auth } from '../firebase';
 
-export const isUserAdminAuthenticated = (): boolean => auth.currentUser !== null;
+export const isUserAdminAuthenticated = (): boolean =>
+  auth.currentUser !== null &&
+  typeof localStorage !== 'undefined' &&
+  localStorage.getItem('smokyzone_owner_uid') === auth.currentUser.uid;
 
 export const adminSignOut = async (): Promise<void> => {
   try {
