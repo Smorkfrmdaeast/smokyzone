@@ -7,7 +7,7 @@ import { ProjectModal } from './components/ProjectModal';
 import { CelebrityVideoModal } from './components/CelebrityVideoModal';
 import { ImageSlot } from './components/ImageSlot';
 import { FloatingAdminButton } from './components/FloatingAdminButton';
-import { PasscodeModal } from './components/PasscodeModal';
+import { OwnerAuthModal } from './components/OwnerAuthModal';
 import { AdminPortalModal } from './components/AdminPortalModal';
 import { ShortVideoPreviewCard } from './components/ShortVideoPreviewCard';
 import {
@@ -52,7 +52,7 @@ import {
 
 export const App: React.FC = () => {
   const [siteConfig, setSiteConfig] = useState<SiteConfig>(getStoredConfig());
-  const [isPasscodeModalOpen, setIsPasscodeModalOpen] = useState(false);
+  const [isOwnerAuthModalOpen, setIsOwnerAuthModalOpen] = useState(false);
   const [isAdminPortalOpen, setIsAdminPortalOpen] = useState(false);
 
   const [selectedServiceCategory, setSelectedServiceCategory] = useState<'all' | 'web' | 'phone' | 'va'>('all');
@@ -91,7 +91,7 @@ export const App: React.FC = () => {
     if (isUserAdminAuthenticated()) {
       setIsAdminPortalOpen(true);
     } else {
-      setIsPasscodeModalOpen(true);
+      setIsOwnerAuthModalOpen(true);
     }
   };
 
@@ -1241,12 +1241,12 @@ export const App: React.FC = () => {
       {/* Floating Owner Studio Trigger */}
       <FloatingAdminButton onClick={handleOpenAdmin} />
 
-      {/* Admin Passcode Gate Modal */}
-      <PasscodeModal
-        isOpen={isPasscodeModalOpen}
-        onClose={() => setIsPasscodeModalOpen(false)}
+      {/* Secure Firebase Owner Authentication */}
+      <OwnerAuthModal
+        isOpen={isOwnerAuthModalOpen}
+        onClose={() => setIsOwnerAuthModalOpen(false)}
         onSuccess={() => {
-          setIsPasscodeModalOpen(false);
+          setIsOwnerAuthModalOpen(false);
           setIsAdminPortalOpen(true);
         }}
       />
