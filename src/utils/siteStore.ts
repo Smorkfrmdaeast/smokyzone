@@ -12,8 +12,9 @@ import {
   PortfolioProject,
   UnfilteredThought,
 } from '../data';
-import { db } from '../firebase';
-import { doc, getDoc, setDoc, onSnapshot, collection } from 'firebase/firestore';
+import { db, storage } from '../firebase';
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { doc, getDoc, setDoc, deleteDoc, onSnapshot, collection } from 'firebase/firestore';
 
 const DB_NAME = 'smokyzone_db';
 const DB_VERSION = 1;
@@ -56,8 +57,41 @@ const openDB = (): Promise<IDBDatabase> => {
   });
 };
 
-export const setMediaItem = async (key: string, dataUrlOrBlob: string, mimeType?: string): Promise<void> => {
-  // 1. Save to local IndexedDB for immediate zero-latency playback
+export const setMediaItem = async (key: string, dataUrlOrBlob: string, mimeType?: string): Promise<string> => {
+  const sanitizedKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const resolvedMimeType = mimeType || 'application/octet-stream';
+
+  // Audio binaries belong in Firebase Storage, never inside a Firestore document.
+  if (resolvedMimeType.startsWith('audio/') || dataUrlOrBlob.startsWith('data:audio/')) {
+    try {
+      const blob = dataUrlOrBlob.startsWith('data:')
+        ? await (await fetch(dataUrlOrBlob)).blob()
+        : new Blob([dataUrlOrBlob], { type: resolvedMimeType });
+      const objectRef = storageRef(storage, `audio/${sanitizedKey}`);
+      await uploadBytes(objectRef, blob, { contentType: blob.type || resolvedMimeType });
+      const downloadUrl = await getDownloadURL(objectRef);
+      const docRef = doc(db, 'media_items', sanitizedKey);
+      await setDoc(docRef, {
+        key: sanitizedKey,
+        url: downloadUrl,
+        mimeType: blob.type || resolvedMimeType,
+        updatedAt: new Date().toISOString(),
+      });
+      try {
+        const idb = await openDB();
+        const tx = idb.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put(downloadUrl, sanitizedKey);
+      } catch { /* local cache is optional */ }
+      try { localStorage.setItem(`smokyzone_media_${sanitizedKey}`, downloadUrl); } catch { /* quota safe */ }
+      window.dispatchEvent(new CustomEvent('smokyzone_media_change', { detail: { key: sanitizedKey, data: downloadUrl } }));
+      return downloadUrl;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `audio/${sanitizedKey}`);
+      throw new Error('Audio upload failed. Check Firebase Storage rules and try again.');
+    }
+  }
+
+  // 1. Save non-audio media locally for immediate zero-latency playback
   try {
     const idb = await openDB();
     await new Promise<void>((resolve, reject) => {
@@ -83,7 +117,6 @@ export const setMediaItem = async (key: string, dataUrlOrBlob: string, mimeType?
 
   // 2. Persist to Firestore Cloud Database so all visitors worldwide see it in real-time
   try {
-    const sanitizedKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
     const docRef = doc(db, 'media_items', sanitizedKey);
     await setDoc(docRef, {
       key: sanitizedKey,
@@ -93,7 +126,9 @@ export const setMediaItem = async (key: string, dataUrlOrBlob: string, mimeType?
     });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, `media_items/${key}`);
+    throw err;
   }
+  return dataUrlOrBlob;
 };
 
 export const getMediaItem = async (key: string): Promise<string | null> => {
@@ -126,7 +161,7 @@ export const getMediaItem = async (key: string): Promise<string | null> => {
     const snap = await getDoc(docRef);
     if (snap.exists()) {
       const data = snap.data();
-      const cloudVal = data?.data as string;
+      const cloudVal = (data?.data || data?.url) as string;
       if (cloudVal) {
         // Cache locally for fast future reads
         try {
@@ -154,6 +189,8 @@ export const getMediaItem = async (key: string): Promise<string | null> => {
 
 export const removeMediaItem = async (key: string): Promise<void> => {
   const sanitizedKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
+  try { await deleteObject(storageRef(storage, `audio/${sanitizedKey}`)); } catch { /* no audio object for this key */ }
+  try { await deleteDoc(doc(db, 'media_items', sanitizedKey)); } catch { /* preserve local cleanup even if cloud delete is unavailable */ }
   try {
     const idb = await openDB();
     await new Promise<void>((resolve) => {
@@ -409,7 +446,7 @@ export const initCloudSync = (): (() => void) => {
           if (change.type === 'added' || change.type === 'modified') {
             const docData = change.doc.data();
             const key = docData.key || change.doc.id;
-            const dataUrl = docData.data;
+            const dataUrl = docData.data || docData.url;
             if (key && dataUrl) {
               try {
                 const idb = await openDB();
