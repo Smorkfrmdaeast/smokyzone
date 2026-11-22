@@ -1,14 +1,24 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Public playback for published site audio; uploads and deletion require Firebase Authentication.
+    function isOwner() {
+      return request.auth != null
+        && firestore.get(/databases/(default)/documents/system/admin_status).data.owner_uid == request.auth.uid;
+    }
+
     match /audio/{audioFile} {
+      // Published audio can be streamed by website visitors.
       allow read: if true;
-      allow write: if request.auth != null
-        && (request.resource == null || (
-          request.resource.size < 50 * 1024 * 1024
-          && request.resource.contentType.matches('audio/.*')
-        ));
+
+      // Only the registered owner can upload, replace, or delete audio.
+      allow write: if isOwner()
+        && (
+          request.resource == null
+          || (
+            request.resource.size <= 50 * 1024 * 1024
+            && request.resource.contentType.matches('audio/.*')
+          )
+        );
     }
   }
 }
