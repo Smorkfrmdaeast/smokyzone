@@ -31,7 +31,7 @@ service cloud.firestore {
 
     // Private owner record. The first authenticated account claims the single owner slot.
     match /system/admin_status {
-      allow read: if isOwner();
+      allow read: if request.auth != null && resource.data.owner_uid == request.auth.uid;
       allow create: if request.auth != null
         && !exists(ownerPath())
         && request.resource.data.owner_registered == true
