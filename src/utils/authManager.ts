@@ -127,6 +127,7 @@ export const createOwnerAccount = async (email: string, password: string): Promi
   }
 
   localStorage.setItem('smokyzone_owner_initialized', 'true');
+  localStorage.setItem('smokyzone_owner_uid', cred.user.uid);
   addActivityLog(
     'Owner Account Created',
     `First-time setup completed for ${email} from ${getDeviceInfo()}`,
@@ -145,6 +146,12 @@ export const loginOwner = async (email: string, password: string): Promise<User>
 
   try {
     const cred = await signInWithEmailAndPassword(auth, email, password);
+    const ownerSnapshot = await getDoc(doc(db, 'system', 'admin_status'));
+    if (!ownerSnapshot.exists() || ownerSnapshot.data()?.owner_uid !== cred.user.uid) {
+      await signOut(auth);
+      throw new Error('This Firebase account is not the registered Smoky Zone owner account.');
+    }
+    localStorage.setItem('smokyzone_owner_uid', cred.user.uid);
     clearFailedAttempts();
 
     addActivityLog(
