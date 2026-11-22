@@ -333,7 +333,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
     if (!progressTimerRef.current) {
       progressTimerRef.current = window.setInterval(() => {
-        setTrackProgress((prev) => (prev >= 100 ? 0 : prev + 0.8));
         if (audioRef.current) {
           mediaManager.updateMusicPosition(audioRef.current.currentTime);
         }
@@ -621,9 +620,24 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       {/* Hidden audio element for physical media */}
       <audio
         ref={audioRef}
-        src={currentTrack.audioSrc || '/music/gunna_on_one_tonight.mp3'}
-        preload="auto"
+        src={customAudioSrc || currentTrack.audioSrc || undefined}
+        preload="metadata"
+        onTimeUpdate={(event) => {
+          const audio = event.currentTarget;
+          if (Number.isFinite(audio.duration) && audio.duration > 0) {
+            setTrackProgress((audio.currentTime / audio.duration) * 100);
+          }
+        }}
         onEnded={handleNext}
+        onError={() => {
+          setIsPlaying(false);
+          stopVisualizer();
+          stopSynthesizedBeat();
+          if (progressTimerRef.current) {
+            clearInterval(progressTimerRef.current);
+            progressTimerRef.current = null;
+          }
+        }}
       />
     </div>
   );
