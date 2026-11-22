@@ -67,14 +67,19 @@ export const setMediaItem = async (key: string, dataUrlOrBlob: string, mimeType?
       const blob = dataUrlOrBlob.startsWith('data:')
         ? await (await fetch(dataUrlOrBlob)).blob()
         : new Blob([dataUrlOrBlob], { type: resolvedMimeType });
+      const contentType = blob.type.startsWith('audio/')
+        ? blob.type
+        : resolvedMimeType.startsWith('audio/')
+          ? resolvedMimeType
+          : 'audio/mpeg';
       const objectRef = storageRef(storage, `audio/${sanitizedKey}`);
-      await uploadBytes(objectRef, blob, { contentType: blob.type || resolvedMimeType });
+      await uploadBytes(objectRef, blob, { contentType });
       const downloadUrl = await getDownloadURL(objectRef);
       const docRef = doc(db, 'media_items', sanitizedKey);
       await setDoc(docRef, {
         key: sanitizedKey,
         url: downloadUrl,
-        mimeType: blob.type || resolvedMimeType,
+        mimeType: contentType,
         updatedAt: new Date().toISOString(),
       });
       try {
