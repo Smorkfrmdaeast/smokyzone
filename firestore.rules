@@ -1,37 +1,69 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default-deny catch-all
+    function ownerPath() {
+      return /databases/$(database)/documents/system/admin_status;
+    }
+
+    function isOwner() {
+      return request.auth != null
+        && exists(ownerPath())
+        && get(ownerPath()).data.owner_uid == request.auth.uid;
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() > 0
+        && id.size() <= 128
+        && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    // Public website content and media metadata; only the registered owner can change it.
+    match /site_content/{settingId} {
+      allow read: if isValidId(settingId);
+      allow create, update, delete: if isOwner() && isValidId(settingId);
+    }
+
+    match /media_items/{mediaId} {
+      allow read: if isValidId(mediaId);
+      allow create, update, delete: if isOwner() && isValidId(mediaId);
+    }
+
+    // Private owner record. The first authenticated account claims the single owner slot.
+    match /system/admin_status {
+      allow read: if isOwner();
+      allow create: if request.auth != null
+        && !exists(ownerPath())
+        && request.resource.data.owner_registered == true
+        && request.resource.data.owner_uid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'owner_registered', 'owner_uid', 'owner_email', 'createdAt', 'createdDevice'
+        ]);
+      allow update: if isOwner()
+        && request.resource.data.owner_uid == resource.data.owner_uid
+        && request.resource.data.owner_registered == true;
+      allow delete: if false;
+    }
+
+    // Public setup indicator contains only a boolean. It is created atomically with admin_status.
+    match /system/owner_status {
+      allow read: if true;
+      allow create: if request.auth != null
+        && !exists(/databases/$(database)/documents/system/owner_status)
+        && request.resource.data.keys().hasOnly(['owner_registered'])
+        && request.resource.data.owner_registered == true
+        && getAfter(ownerPath()).data.owner_uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Activity records are private to the registered owner.
+    match /activity_logs/{logId} {
+      allow read, write: if isOwner();
+    }
+
+    // Everything else remains denied.
     match /{document=**} {
       allow read, write: if false;
-    }
-
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    // Public website content - read allowed for all visitors, write only for authenticated owner
-    match /site_content/{settingId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
-    }
-
-    // Public media storage - read allowed for all visitors, write only for authenticated owner
-    match /media_items/{mediaId} {
-      allow read: if true;
-      allow write: if isAuthenticated();
-    }
-
-    // System configuration (owner setup verification & initial admin registration)
-    match /system/{docId} {
-      allow read: if true;
-      // Allow first-time registration of owner account, or modifications by authenticated owner
-      allow write: if isAuthenticated() || (docId == 'admin_status' && !exists(/databases/$(database)/documents/system/admin_status));
-    }
-
-    // Activity logs - read and write only for authenticated owner
-    match /activity_logs/{logId} {
-      allow read, write: if isAuthenticated();
     }
   }
 }
