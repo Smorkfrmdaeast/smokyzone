@@ -317,11 +317,18 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         }
         audioRef.current.volume = isMuted ? 0 : volume;
         await audioRef.current.play();
-      } catch {
-        playSynthesizedBeat();
+      } catch (error) {
+        console.warn('Track playback failed:', error);
+        setIsPlaying(false);
+        stopVisualizer();
+        stopSynthesizedBeat();
+        return;
       }
     } else {
-      playSynthesizedBeat();
+      setIsPlaying(false);
+      stopVisualizer();
+      stopSynthesizedBeat();
+      return;
     }
 
     if (!progressTimerRef.current) {
