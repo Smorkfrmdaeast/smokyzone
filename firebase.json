@@ -1,4 +1,10 @@
 {
+  "firestore": [
+    {
+      "database": "ai-studio-smokyzone-d5b406ce-4d73-4af4-b06f-7fc6e2d05b4a",
+      "rules": "firestore.rules"
+    }
+  ],
   "storage": {
     "rules": "storage.rules"
   }
