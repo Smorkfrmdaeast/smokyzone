@@ -3,7 +3,7 @@ service firebase.storage {
   match /b/{bucket}/o {
     function isOwner() {
       return request.auth != null
-        && firestore.get(/databases/(default)/documents/system/admin_status).data.owner_uid == request.auth.uid;
+        && firestore.get(/databases/ai-studio-smokyzone-d5b406ce-4d73-4af4-b06f-7fc6e2d05b4a/documents/system/admin_status).data.owner_uid == request.auth.uid;
     }
 
     match /audio/{audioFile} {
