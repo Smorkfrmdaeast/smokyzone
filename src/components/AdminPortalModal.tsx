@@ -329,33 +329,36 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({ isOpen, onCl
       return;
     }
 
-    const newId = `track_${Date.now()}`;
-    let uploadedAudioSrc: string | undefined;
-    if (newTrackAudioSrc) {
-      uploadedAudioSrc = await setMediaItem(`audio_track_${newId}`, newTrackAudioSrc, 'audio/mpeg');
+    setIsUploading(true);
+    try {
+      const newId = `track_${Date.now()}`;
+      let uploadedAudioSrc: string | undefined;
+      if (newTrackAudioSrc) {
+        uploadedAudioSrc = await setMediaItem(`audio_track_${newId}`, newTrackAudioSrc, 'audio/mpeg');
+      }
+
+      const newTrack: MusicTrack = {
+        id: newId,
+        title: newTrackTitle.trim(),
+        artist: newTrackArtist.trim() || 'Smork',
+        genre: newTrackGenre.trim() || 'Official Drill',
+        duration: 'Upload required',
+        audioSrc: uploadedAudioSrc,
+        tag: newTrackTag.trim() || 'Exclusive',
+        energyVibe: 'High Energy Official Anthem',
+      };
+
+      const updated = { ...config, playlist: [newTrack, ...config.playlist] };
+      setConfig(updated);
+      saveStoredConfig(updated);
+      setNewTrackTitle('');
+      setNewTrackAudioSrc(null);
+      showToast('Song added and saved to Smoky Zone!');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Song could not be saved. Please try again.', 'error');
+    } finally {
+      setIsUploading(false);
     }
-
-    const newTrack: MusicTrack = {
-      id: newId,
-      title: newTrackTitle.trim(),
-      artist: newTrackArtist.trim() || 'Smork',
-      genre: newTrackGenre.trim() || 'Official Drill',
-      duration: '3:20',
-      audioSrc: uploadedAudioSrc,
-      tag: newTrackTag.trim() || 'Exclusive',
-      energyVibe: 'High Energy Official Anthem',
-    };
-
-    const updated = {
-      ...config,
-      playlist: [newTrack, ...config.playlist],
-    };
-    setConfig(updated);
-    saveStoredConfig(updated);
-
-    setNewTrackTitle('');
-    setNewTrackAudioSrc(null);
-    showToast('Song added to Smoky Zone Official Selection!');
   };
 
   const handleDeleteTrack = (id: string) => {
