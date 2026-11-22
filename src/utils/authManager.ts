@@ -9,7 +9,7 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { addActivityLog } from './siteStore';
 
@@ -88,25 +88,15 @@ const clearFailedAttempts = () => {
 
 export const checkOwnerAccountStatus = async (): Promise<{ ownerExists: boolean; ownerEmail?: string }> => {
   try {
-    const ref = doc(db, 'system', 'admin_status');
-    const snap = await getDoc(ref);
-    if (snap.exists()) {
-      const data = snap.data();
-      if (data?.owner_registered === true) {
-        return { ownerExists: true, ownerEmail: data?.owner_email };
-      }
-    }
+    // This public status document contains only a boolean, never owner credentials or email.
+    const statusRef = doc(db, 'system', 'owner_status');
+    const snap = await getDoc(statusRef);
+    return { ownerExists: snap.exists() && snap.data()?.owner_registered === true };
   } catch (err) {
-    console.warn('Could not query admin_status from Firestore, checking local fallback:', err);
-  }
-
-  // Local fallback check
-  const localOwner = localStorage.getItem('smokyzone_owner_initialized');
-  if (localOwner === 'true') {
+    console.warn('Could not verify owner setup status:', err);
+    // Fail closed: never offer public owner registration when status cannot be verified.
     return { ownerExists: true };
   }
-
-  return { ownerExists: false };
 };
 
 export const createOwnerAccount = async (email: string, password: string): Promise<User> => {
@@ -115,28 +105,33 @@ export const createOwnerAccount = async (email: string, password: string): Promi
   }
 
   const cred = await createUserWithEmailAndPassword(auth, email, password);
+  const ownerRef = doc(db, 'system', 'admin_status');
+  const statusRef = doc(db, 'system', 'owner_status');
+  const batch = writeBatch(db);
 
-  // Persist owner initialized flag to Firestore and locally
+  // Atomically claim the single owner slot and publish a non-sensitive setup flag.
+  batch.set(ownerRef, {
+    owner_registered: true,
+    owner_uid: cred.user.uid,
+    owner_email: email,
+    createdAt: new Date().toISOString(),
+    createdDevice: getDeviceInfo(),
+  });
+  batch.set(statusRef, { owner_registered: true });
+
   try {
-    const ref = doc(db, 'system', 'admin_status');
-    await setDoc(ref, {
-      owner_registered: true,
-      owner_email: email,
-      createdAt: new Date().toISOString(),
-      createdDevice: getDeviceInfo(),
-    });
+    await batch.commit();
   } catch (err) {
-    console.warn('Could not write admin_status to Firestore:', err);
+    await signOut(auth);
+    throw new Error('Owner account could not be registered in the database. Please check Firestore rules and try again.');
   }
 
   localStorage.setItem('smokyzone_owner_initialized', 'true');
-
   addActivityLog(
     'Owner Account Created',
     `First-time setup completed for ${email} from ${getDeviceInfo()}`,
     'security'
   );
-
   return cred.user;
 };
 
