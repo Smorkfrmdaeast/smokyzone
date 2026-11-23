@@ -119,9 +119,19 @@
         "device": {
           "type": "string",
           "description": "Device summary string"
+        },
+        "owner_uids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Firebase Auth UIDs for approved owner Google accounts"
+        },
+        "owner_emails": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Approved owner emails paired by index with owner_uids"
         }
       },
-      "properties": {\n        "owner_uids": { "type": "array", "items": { "type": "string" }, "description": "Firebase Auth UIDs for approved owner Google accounts" },\n        "owner_emails": { "type": "array", "items": { "type": "string" }, "description": "Approved owner emails paired by index with owner_uids" }\n      },\n      "required": ["owner_registered", "owner_email", "owner_uid"]
+      "required": ["owner_registered", "owner_email", "owner_uid"]
     },
     "ActivityLog": {
       "title": "ActivityLog",
