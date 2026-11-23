@@ -1053,10 +1053,16 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
 
     const newId = `project_${Date.now()}`;
     const techArray = newProjectTech.split(',').map((t) => t.trim()).filter(Boolean);
+    let savedImage = newProjectImage || '/images/phone_repair_diag.jpg';
+    let imageCloudSynced = true;
+    let imageWarning: string | undefined;
 
     if (newProjectImage) {
-      await setMediaItem(`project_photo_${newId}`, newProjectImage, 'image/jpeg');
-      setStoredPhoto(`project_photo_${newId}`, newProjectImage);
+      const res = await setMediaItem(`project_photo_${newId}`, newProjectImage, 'image/jpeg');
+      savedImage = res.downloadUrl || newProjectImage;
+      imageCloudSynced = res.cloudSynced;
+      imageWarning = res.warning;
+      await setStoredPhoto(`project_photo_${newId}`, savedImage);
     }
 
     const newProj: PortfolioProject = {
@@ -1066,7 +1072,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
       description: newProjectDesc.trim(),
       technologies: techArray.length ? techArray : ['Web & Phone Tech', 'Real-world Deployment'],
       role: newProjectRole.trim() || 'Lead Specialist',
-      image: newProjectImage || '/images/phone_repair_diag.jpg',
+      image: savedImage,
       fallbackImage: '/images/images-3.jpeg',
       features: ['Client specification satisfied', 'Verified performance and quality'],
     };
@@ -1076,7 +1082,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
       ...config,
       projects: updatedProjects,
       projectPhotos: newProjectImage
-        ? { ...config.projectPhotos, [newId]: newProjectImage }
+        ? { ...config.projectPhotos, [newId]: savedImage }
         : config.projectPhotos,
     };
     setConfig(updated);
@@ -1087,7 +1093,7 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
     setNewProjectTech('');
     setNewProjectImage(null);
     setIsAddingProject(false);
-    showToast('New project created and published to portfolio!');
+    showToast(imageCloudSynced ? 'New project created and published!' : imageWarning || 'Project created locally; image sync is pending.');
   };
 
   const handleDeleteProject = (projId: string) => {
