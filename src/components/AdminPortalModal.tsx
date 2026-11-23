@@ -278,27 +278,20 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
       const base64 = file.type.startsWith('image/')
         ? await compressImageFile(file)
         : await fileToBase64(file);
+      const mediaMime = base64.match(/^data:([^;,]+)/i)?.[1] || file.type || 'image/jpeg';
 
       setUploadProgress(80);
-      await setStoredPhoto(key, base64);
+      const res = await setMediaItem(key, base64, mediaMime, (pct) =>
+        setUploadProgress(Math.max(80, Math.min(99, pct)))
+      );
+      const savedUrl = res.downloadUrl || base64;
+      await setStoredPhoto(key, savedUrl);
 
-      if (key === 'hero_portrait') setHeroPhoto(base64);
-      if (key === 'celebrity_bandana_photo') setCelebrityPhoto(base64);
-      if (key === 'tech_setup') setTechSetupPhoto(base64);
-      let walkinCloudOk = true;
-      let walkinWarn: string | undefined;
-      let savedUrl = base64;
-      if (key === 'walkin_custom_media') {
-        const res = await setMediaItem('walkin_custom_media', file, file.type, (pct) =>
-          setUploadProgress(Math.max(80, Math.min(99, pct)))
-        );
-        walkinCloudOk = res.cloudSynced;
-        walkinWarn = res.warning;
-        savedUrl = res.downloadUrl || base64;
-        setWalkinMedia(savedUrl);
-      }
+      if (key === 'hero_portrait') setHeroPhoto(savedUrl);
+      if (key === 'celebrity_bandana_photo') setCelebrityPhoto(savedUrl);
+      if (key === 'tech_setup') setTechSetupPhoto(savedUrl);
+      if (key === 'walkin_custom_media') setWalkinMedia(savedUrl);
 
-      // Update in config.brandPhotos as well
       const updatedConfig = {
         ...config,
         brandPhotos: {
@@ -312,9 +305,9 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
 
       setUploadProgress(100);
       setTimeout(() => setUploadProgress(null), 600);
-      if (!hasFirebaseGoogleOwnerSession() || !walkinCloudOk) {
+      if (!hasFirebaseGoogleOwnerSession() || !res.cloudSynced) {
         showToast(
-          walkinWarn ||
+          res.warning ||
             `Saved locally only. Verify Google Sign-In (${OWNER_EMAIL_DISPLAY}) in Passcode & Cloud to sync across devices.`,
           'info'
         );
@@ -1031,21 +1024,22 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
     setIsUploading(true);
     try {
       const base64 = await compressImageFile(file);
-      await setMediaItem(`project_photo_${projectId}`, base64, file.type);
-      setStoredPhoto(`project_photo_${projectId}`, base64);
+      const res = await setMediaItem(`project_photo_${projectId}`, base64, 'image/jpeg');
+      const savedUrl = res.downloadUrl || base64;
+      await setStoredPhoto(`project_photo_${projectId}`, savedUrl);
 
       const updated = {
         ...config,
         projectPhotos: {
           ...config.projectPhotos,
-          [projectId]: base64,
+          [projectId]: savedUrl,
         },
       };
       setConfig(updated);
       saveStoredConfig(updated);
-      showToast(`Project photo updated and synced across site!`);
-    } catch {
-      showToast('Error uploading project photo.', 'error');
+      showToast(res.cloudSynced ? 'Project photo uploaded and synced across devices!' : res.warning || 'Project photo saved locally.');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Error uploading project photo.', 'error');
     } finally {
       setIsUploading(false);
     }
