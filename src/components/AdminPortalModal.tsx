@@ -63,7 +63,7 @@ import {
   CloudSyncState,
   uploadAudioTrackToStorage,
   getUserPrimaryEmail,
-  OWNER_EMAIL,
+  OWNER_EMAILS,
   OWNER_EMAIL_DISPLAY,
 } from '../utils/siteStore';
 import { SyncIndicator } from './SyncIndicator';
@@ -3178,9 +3178,9 @@ export const AdminPortalModal: React.FC<AdminPortalModalProps> = ({
                   </div>
 
                   <div className="p-3 rounded-xl bg-[#050811] border border-white/5 space-y-1">
-                    <span className="text-[10px] font-mono text-slate-400 uppercase block">Authorized Owner Email</span>
-                    <p className="text-white font-mono font-medium">{OWNER_EMAIL_DISPLAY}</p>
-                    <p className="text-[11px] text-slate-400">Passcode & optional Google sign-in locked exclusively to {OWNER_EMAIL}.</p>
+                    <span className="text-[10px] font-mono text-slate-400 uppercase block">Authorized Owner Accounts</span>
+                    <p className="text-white font-mono font-medium">{OWNER_EMAILS.join(" · ")}</p>
+                    <p className="text-[11px] text-slate-400">Google sign-in is restricted to these two verified owner accounts.</p>
                   </div>
                 </div>
               </div>
