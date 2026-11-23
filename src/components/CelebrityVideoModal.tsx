@@ -6,16 +6,12 @@ import {
   Volume2,
   VolumeX,
   Flame,
-  Radio,
   ExternalLink,
-  RotateCcw,
-  Maximize2,
   Music2,
   Sparkles,
 } from 'lucide-react';
-import { VIDEO_PREVIEW_CLIPS, VideoClipItem } from '../data';
+import { VideoClipItem } from '../data';
 import { getMediaItem, getStoredConfig, SiteConfig } from '../utils/siteStore';
-
 import { mediaManager } from '../utils/mediaManager';
 
 interface CelebrityVideoModalProps {
@@ -35,7 +31,10 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
   const [progress, setProgress] = useState<number>(0);
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(0);
   const [customVideoSrc, setCustomVideoSrc] = useState<string | null>(clip?.videoSrc || null);
+  const [customAudioSrc, setCustomAudioSrc] = useState<string | null>(clip?.audioSrc || null);
+
   const timerRef = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -54,6 +53,11 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
   // Exact 5-second duration loop
   const totalSeconds = 5;
 
+  const stopSynthAudio = () => {
+    // No-op cleanup for synth removal
+  };
+
+  // When clip changes or modal opens
   useEffect(() => {
     if (clip) {
       setProgress(0);
@@ -63,14 +67,19 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
       mediaManager.onVideoPlay(clip.id, true);
     } else {
       mediaManager.onVideoStop();
+      stopSynthAudio();
     }
   }, [clip?.id]);
 
+  // Load custom video or custom audio for the clip from local/cloud storage
   useEffect(() => {
     let isMounted = true;
     if (clip) {
       getMediaItem(`video_clip_${clip.id}`).then((custom) => {
         if (isMounted) setCustomVideoSrc(custom || clip.videoSrc || null);
+      });
+      getMediaItem(`video_clip_audio_${clip.id}`).then((customAudio) => {
+        if (isMounted) setCustomAudioSrc(customAudio || clip.audioSrc || null);
       });
     }
 
@@ -79,6 +88,11 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
       if (!customEvent.detail || customEvent.detail.key === `video_clip_${clip?.id}`) {
         getMediaItem(`video_clip_${clip?.id}`).then((custom) => {
           if (isMounted) setCustomVideoSrc(custom || clip?.videoSrc || null);
+        });
+      }
+      if (!customEvent.detail || customEvent.detail.key === `video_clip_audio_${clip?.id}`) {
+        getMediaItem(`video_clip_audio_${clip?.id}`).then((customAudio) => {
+          if (isMounted) setCustomAudioSrc(customAudio || clip?.audioSrc || null);
         });
       }
     };
@@ -90,7 +104,19 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
     };
   }, [clip?.id]);
 
+  // Synchronize native video, custom clip audio, and synth preview with isPlaying & isMuted
   useEffect(() => {
+    // 1. Native video element (plays native sound if video file is present)
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+      if (isPlaying) {
+        videoRef.current.play().catch(() => {});
+      } else {
+        videoRef.current.pause();
+      }
+    }
+
+    // 2. Custom clip audio element (plays clip's dedicated uploaded sound if present)
     if (audioRef.current) {
       audioRef.current.muted = isMuted;
       if (isPlaying) {
@@ -100,27 +126,33 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
       }
     }
 
-    if (clip) {
-      if (isPlaying && !isMuted) {
+    // Inform global media manager so site music stays paused without overlap
+    if (clip && isPlaying && !isMuted) {
+      const state = mediaManager.getState();
+      if (state.activeSource !== 'video' || state.activeVideoId !== clip.id) {
         mediaManager.onVideoPlay(clip.id, true);
-      } else if (!isPlaying || isMuted) {
-        mediaManager.onVideoStop(clip.id);
       }
     }
-  }, [isPlaying, isMuted, clip]);
+  }, [isPlaying, isMuted, clip, customVideoSrc, customAudioSrc]);
 
+  // Handle external video pause event (e.g. tab switch or music started)
   useEffect(() => {
     const handlePauseVideo = () => {
       setIsPlaying(false);
+      if (videoRef.current) {
+        videoRef.current.pause();
+      }
       if (audioRef.current) {
         audioRef.current.pause();
       }
+      stopSynthAudio();
     };
 
     window.addEventListener('smokyzone_pause_video', handlePauseVideo);
     return () => window.removeEventListener('smokyzone_pause_video', handlePauseVideo);
   }, []);
 
+  // 5-second loop timer
   useEffect(() => {
     if (clip && isPlaying) {
       timerRef.current = window.setInterval(() => {
@@ -142,10 +174,32 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
     };
   }, [clip, isPlaying, totalSeconds]);
 
+  // Clean up synth and timers on unmount; restore background music if unmounted
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleCloseModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      stopSynthAudio();
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (clip) {
+        mediaManager.onVideoStop(clip.id);
+      }
+    };
+  }, [clip?.id]);
+
   if (!clip) return null;
 
   const handleCloseModal = () => {
-    mediaManager.onVideoStop(clip?.id);
+    stopSynthAudio();
+    if (videoRef.current) videoRef.current.pause();
+    if (audioRef.current) audioRef.current.pause();
+    mediaManager.onVideoStop(clip.id);
     onClose();
   };
 
@@ -166,18 +220,21 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
 
         {/* Video Player Section */}
         <div className="md:w-7/12 bg-black relative flex items-center justify-center overflow-hidden min-h-[320px] md:min-h-[480px]">
-          {/* Audio stream for fullscreen video audio */}
-          <audio
-            ref={audioRef}
-            src="/music/gunna_on_one_tonight.mp3"
-            loop
-            preload="auto"
-          />
+          {/* Optional Clip-Specific Audio (ONLY played if explicitly attached to this clip, NEVER Gunna's track) */}
+          {customAudioSrc && !customVideoSrc && (
+            <audio
+              ref={audioRef}
+              src={customAudioSrc}
+              loop
+              preload="auto"
+            />
+          )}
 
           {/* Main Visual Frame */}
           <div className="relative w-full h-full flex items-center justify-center">
             {customVideoSrc ? (
               <video
+                ref={videoRef}
                 src={customVideoSrc}
                 autoPlay={isPlaying}
                 loop
@@ -252,9 +309,18 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {/* Sound Type Label */}
+                  <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                    {customVideoSrc
+                      ? 'Video Audio'
+                      : customAudioSrc
+                      ? 'Clip Sound'
+                      : 'Authentic Synth Vibe'}
+                  </span>
                   <button
                     onClick={toggleMute}
                     className="hover:text-[#1E90FF] transition-colors p-1"
+                    title={isMuted ? 'Unmute' : 'Mute'}
                   >
                     {isMuted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
                   </button>
@@ -343,7 +409,7 @@ export const CelebrityVideoModal: React.FC<CelebrityVideoModalProps> = ({
 
           <div className="mt-6 pt-3 border-t border-white/10 flex items-center justify-between text-[11px] font-mono text-slate-400">
             <span>CELEBRITY SMORK 💙💫</span>
-            <span className="text-[#1E90FF]">@Smorkfrmdaeast</span>
+            <span className="text-[#1E90FF]">@Smorkfrmdaeast1</span>
           </div>
         </div>
       </div>

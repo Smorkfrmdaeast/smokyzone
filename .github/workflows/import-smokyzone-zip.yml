@@ -1,0 +1,84 @@
+name: Import Smoky Zone ZIP into review branch
+
+on:
+  push:
+    branches:
+      - smokyzone-zip-review-2026-11-23
+    paths:
+      - smokyzone-review-cloud-sync-fix.zip
+
+permissions:
+  contents: write
+
+concurrency:
+  group: smokyzone-zip-import
+  cancel-in-progress: false
+
+jobs:
+  import-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out review branch
+        uses: actions/checkout@v4
+        with:
+          ref: smokyzone-zip-review-2026-11-23
+          fetch-depth: 0
+
+      - name: Validate ZIP and safe paths
+        run: |
+          set -euo pipefail
+          ZIP_FILE="smokyzone-review-cloud-sync-fix.zip"
+          test -f "$ZIP_FILE"
+          unzip -t "$ZIP_FILE"
+          python3 - <<'PY'
+          import pathlib, stat, zipfile
+          z = zipfile.ZipFile("smokyzone-review-cloud-sync-fix.zip")
+          for item in z.infolist():
+              p = pathlib.PurePosixPath(item.filename)
+              if p.is_absolute() or ".." in p.parts:
+                  raise SystemExit(f"Unsafe archive path: {item.filename}")
+              mode = item.external_attr >> 16
+              if stat.S_ISLNK(mode):
+                  raise SystemExit(f"Symlink not allowed in archive: {item.filename}")
+          print(f"Validated {len(z.infolist())} archive entries.")
+          PY
+
+      - name: Extract project and preserve AI Studio workspace
+        run: |
+          set -euo pipefail
+          EXTRACT_DIR="$(mktemp -d)"
+          unzip -q "smokyzone-review-cloud-sync-fix.zip" -d "$EXTRACT_DIR"
+          rsync -a --exclude='.aistudio/' --exclude='.git/' "$EXTRACT_DIR"/ "$GITHUB_WORKSPACE"/
+          rm -rf "$EXTRACT_DIR"
+          rm -f "smokyzone-review-cloud-sync-fix.zip"
+          rm -f server.ts
+
+      - name: Commit imported project to review branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No project changes to commit."
+          else
+            git commit -m "chore: import corrected Smoky Zone project ZIP"
+            git push origin HEAD:smokyzone-zip-review-2026-11-23
+          fi
+
+      - name: Install dependencies and run production build
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund --package-lock=false
+          npm run build
+
+      - name: Report result
+        if: always()
+        run: |
+          {
+            echo "## Smoky Zone ZIP import"
+            echo "- Branch: smokyzone-zip-review-2026-11-23"
+            echo "- ZIP extraction and commit run before the build check."
+            echo "- Build result: ${{ job.status }}"
+            echo "- The main branch and Vercel production were not changed."
+          } >> "$GITHUB_STEP_SUMMARY"

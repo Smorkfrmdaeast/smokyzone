@@ -1,11 +1,11 @@
 // Global Audio & Media Manager for Smoky Zone
 // Guarantees:
 // 1. Only ONE media source plays at a time.
-// 2. When any video preview or walk-in video plays with sound, music pauses automatically.
-// 3. When that video/walk-in is closed, paused, or finished, music resumes from the exact spot (only if it was playing before).
-// 4. Inline short-video previews stay strictly muted until tapped.
+// 2. Immediate, zero-latency pause of background music when any video starts (ensuring 'On One Tonight' NEVER overlaps with videos).
+// 3. Smooth 500ms cross-fade in when resuming music after video finishes/closes.
+// 4. Music resumes from the exact position where it paused, ONLY if it was playing beforehand.
 // 5. Switching browser tabs immediately pauses all playing media.
-// 6. Opening another video stops the first one.
+// 6. Explicit synchronization between AudioPlayer, CelebrityVideoModal, and Unfiltered walk-in audio.
 
 export type MediaSourceType = 'music' | 'video' | 'walkin' | 'none';
 
@@ -14,6 +14,15 @@ export interface MediaManagerState {
   activeVideoId: string | null;
   wasMusicPlayingBeforeVideo: boolean;
   musicPosition: number;
+  isFading: boolean;
+}
+
+export interface MusicController {
+  fadeOut: (durationMs: number) => Promise<void>;
+  fadeIn: (targetPosition: number, durationMs: number) => Promise<void>;
+  getPosition: () => number;
+  isPlaying: () => boolean;
+  pauseImmediate: () => void;
 }
 
 class MediaManager {
@@ -22,9 +31,12 @@ class MediaManager {
     activeVideoId: null,
     wasMusicPlayingBeforeVideo: false,
     musicPosition: 0,
+    isFading: false,
   };
 
   private listeners: Set<(state: MediaManagerState) => void> = new Set();
+  private musicController: MusicController | null = null;
+  private fadeDurationMs: number = 500; // 500ms smooth cross-fade duration
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -35,6 +47,24 @@ class MediaManager {
         }
       });
     }
+  }
+
+  public setFadeDuration(ms: number) {
+    this.fadeDurationMs = Math.max(50, ms);
+  }
+
+  public getFadeDuration(): number {
+    return this.fadeDurationMs;
+  }
+
+  // Register the active music player controller
+  public registerMusicController(controller: MusicController): () => void {
+    this.musicController = controller;
+    return () => {
+      if (this.musicController === controller) {
+        this.musicController = null;
+      }
+    };
   }
 
   public subscribe(listener: (state: MediaManagerState) => void): () => void {
@@ -50,6 +80,9 @@ class MediaManager {
   }
 
   public pauseAllMedia(reason: string = 'global_pause') {
+    if (this.musicController && this.musicController.isPlaying()) {
+      this.musicController.pauseImmediate();
+    }
     if (this.state.activeSource === 'music') {
       window.dispatchEvent(new CustomEvent('smokyzone_pause_music', { detail: { reason } }));
     }
@@ -59,20 +92,32 @@ class MediaManager {
     if (this.state.activeSource === 'walkin') {
       window.dispatchEvent(new CustomEvent('smokyzone_pause_walkin', { detail: { reason } }));
     }
+    this.state.activeSource = 'none';
+    this.state.activeVideoId = null;
+    this.notify();
   }
 
   // Music Player notifies when it starts playback
   public onMusicPlay(position?: number) {
     if (typeof position === 'number') {
       this.state.musicPosition = position;
+    } else if (this.musicController) {
+      this.state.musicPosition = this.musicController.getPosition();
     }
+
+    // Since user explicitly pressed play on music, clear wasMusicPlayingBeforeVideo
+    this.state.wasMusicPlayingBeforeVideo = false;
 
     // Immediately stop any video or walkin audio if playing
     if (this.state.activeSource === 'video') {
-      window.dispatchEvent(new CustomEvent('smokyzone_pause_video', { detail: { reason: 'music_started' } }));
+      window.dispatchEvent(
+        new CustomEvent('smokyzone_pause_video', { detail: { reason: 'music_started' } })
+      );
     }
     if (this.state.activeSource === 'walkin') {
-      window.dispatchEvent(new CustomEvent('smokyzone_pause_walkin', { detail: { reason: 'music_started' } }));
+      window.dispatchEvent(
+        new CustomEvent('smokyzone_pause_walkin', { detail: { reason: 'music_started' } })
+      );
     }
 
     this.state.activeSource = 'music';
@@ -85,7 +130,7 @@ class MediaManager {
     this.state.musicPosition = pos;
   }
 
-  // User manually toggles music pause
+  // User manually toggles music pause in the AudioPlayer UI
   public onMusicPause(isManualUserAction = false) {
     if (isManualUserAction) {
       this.state.wasMusicPlayingBeforeVideo = false;
@@ -106,13 +151,28 @@ class MediaManager {
     }
 
     if (hasSound) {
-      // If music was playing, remember it and pause automatically
-      if (this.state.activeSource === 'music') {
+      // Check if background music is currently active
+      const isMusicActive =
+        this.state.activeSource === 'music' ||
+        (this.musicController ? this.musicController.isPlaying() : false);
+
+      if (isMusicActive) {
         this.state.wasMusicPlayingBeforeVideo = true;
-        window.dispatchEvent(new CustomEvent('smokyzone_pause_music', { detail: { reason: 'video_sound' } }));
+        if (this.musicController) {
+          this.state.musicPosition = this.musicController.getPosition();
+          // IMMEDIATELY pause background music with zero latency so 'On One Tonight' NEVER overlaps with video sound!
+          this.musicController.pauseImmediate();
+        } else {
+          window.dispatchEvent(
+            new CustomEvent('smokyzone_pause_music', { detail: { reason: 'video_sound' } })
+          );
+        }
       }
+
       if (this.state.activeSource === 'walkin') {
-        window.dispatchEvent(new CustomEvent('smokyzone_pause_walkin', { detail: { reason: 'video_sound' } }));
+        window.dispatchEvent(
+          new CustomEvent('smokyzone_pause_walkin', { detail: { reason: 'video_sound' } })
+        );
       }
 
       this.state.activeSource = 'video';
@@ -123,43 +183,103 @@ class MediaManager {
 
   // Walk-in atmospheric audio plays
   public onWalkinPlay() {
-    if (this.state.activeSource === 'music') {
+    const isMusicActive =
+      this.state.activeSource === 'music' ||
+      (this.musicController ? this.musicController.isPlaying() : false);
+
+    if (isMusicActive) {
       this.state.wasMusicPlayingBeforeVideo = true;
-      window.dispatchEvent(new CustomEvent('smokyzone_pause_music', { detail: { reason: 'walkin_audio' } }));
+      if (this.musicController) {
+        this.state.musicPosition = this.musicController.getPosition();
+        this.musicController.pauseImmediate();
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('smokyzone_pause_music', { detail: { reason: 'walkin_audio' } })
+        );
+      }
     }
+
     if (this.state.activeSource === 'video') {
-      window.dispatchEvent(new CustomEvent('smokyzone_pause_video', { detail: { reason: 'walkin_audio' } }));
+      window.dispatchEvent(
+        new CustomEvent('smokyzone_pause_video', { detail: { reason: 'walkin_audio' } })
+      );
     }
     this.state.activeSource = 'walkin';
     this.notify();
   }
 
   // Walk-in audio stopped or paused
-  public onWalkinStop() {
+  public async onWalkinStop() {
     if (this.state.activeSource === 'walkin') {
       this.state.activeSource = 'none';
+
+      // Resume music with 500ms fade-in if it was playing before
       if (this.state.wasMusicPlayingBeforeVideo) {
         this.state.wasMusicPlayingBeforeVideo = false;
-        window.dispatchEvent(
-          new CustomEvent('smokyzone_resume_music', { detail: { position: this.state.musicPosition } })
-        );
+        const resumePos = this.state.musicPosition;
+
+        this.state.isFading = true;
+        this.state.activeSource = 'music';
+        this.notify();
+
+        if (this.musicController) {
+          try {
+            await this.musicController.fadeIn(resumePos, this.fadeDurationMs);
+          } catch {
+            window.dispatchEvent(
+              new CustomEvent('smokyzone_resume_music', { detail: { position: resumePos } })
+            );
+          }
+        } else {
+          window.dispatchEvent(
+            new CustomEvent('smokyzone_fade_resume_music', {
+              detail: { durationMs: this.fadeDurationMs, position: resumePos },
+            })
+          );
+          window.dispatchEvent(
+            new CustomEvent('smokyzone_resume_music', { detail: { position: resumePos, fadeDuration: this.fadeDurationMs } })
+          );
+        }
+        this.state.isFading = false;
       }
     }
     this.notify();
   }
 
   // Video modal closed, video paused, or finished
-  public onVideoStop(videoId?: string) {
+  public async onVideoStop(videoId?: string) {
     if (this.state.activeSource === 'video' && (!videoId || this.state.activeVideoId === videoId)) {
       this.state.activeSource = 'none';
       this.state.activeVideoId = null;
 
-      // Resume music from the exact same spot, but only if it was playing before!
+      // Resume music with 500ms cross-fade from exact same spot, only if it was playing before!
       if (this.state.wasMusicPlayingBeforeVideo) {
         this.state.wasMusicPlayingBeforeVideo = false;
-        window.dispatchEvent(
-          new CustomEvent('smokyzone_resume_music', { detail: { position: this.state.musicPosition } })
-        );
+        const resumePos = this.state.musicPosition;
+
+        this.state.isFading = true;
+        this.state.activeSource = 'music';
+        this.notify();
+
+        if (this.musicController) {
+          try {
+            await this.musicController.fadeIn(resumePos, this.fadeDurationMs);
+          } catch {
+            window.dispatchEvent(
+              new CustomEvent('smokyzone_resume_music', { detail: { position: resumePos } })
+            );
+          }
+        } else {
+          window.dispatchEvent(
+            new CustomEvent('smokyzone_fade_resume_music', {
+              detail: { durationMs: this.fadeDurationMs, position: resumePos },
+            })
+          );
+          window.dispatchEvent(
+            new CustomEvent('smokyzone_resume_music', { detail: { position: resumePos, fadeDuration: this.fadeDurationMs } })
+          );
+        }
+        this.state.isFading = false;
       }
     }
     this.notify();

@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Menu, X, ArrowUpRight } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../firebase';
+import { isUserAdminAuthenticated } from '../utils/siteStore';
 
 interface NavbarProps {
   onNavigate: (id: string) => void;
@@ -8,6 +11,25 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onOpenAdmin }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(() => isUserAdminAuthenticated());
+
+  useEffect(() => {
+    setIsAdmin(isUserAdminAuthenticated());
+
+    const unsubAuth = onAuthStateChanged(auth, () => {
+      setIsAdmin(isUserAdminAuthenticated());
+    });
+
+    const handleAuthChange = () => {
+      setIsAdmin(isUserAdminAuthenticated());
+    };
+
+    window.addEventListener('smokyzone_auth_change', handleAuthChange);
+    return () => {
+      unsubAuth();
+      window.removeEventListener('smokyzone_auth_change', handleAuthChange);
+    };
+  }, []);
 
   const handleLinkClick = (id: string) => {
     setMobileMenuOpen(false);
@@ -71,11 +93,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onOpenAdmin }) => {
 
         {/* Zone 3: 1 primary action */}
         <div className="hidden md:flex items-center gap-3 shrink-0">
-          {onOpenAdmin && (
+          {isAdmin && onOpenAdmin && (
             <button
               onClick={onOpenAdmin}
-              className="p-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-[#1E90FF] transition-colors border border-white/10"
-              title="Site Control & Media Studio"
+              className="p-2.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 hover:text-white transition-colors border border-emerald-500/40 shadow cursor-pointer"
+              title="Smoky Zone Owner Studio (Authenticated Owner)"
               aria-label="Open Site Control"
             >
               <i className="fa-solid fa-sliders text-sm" />
@@ -156,13 +178,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onNavigate, onOpenAdmin }) => {
             >
               Work With Smork
             </button>
-            {onOpenAdmin && (
+            {isAdmin && onOpenAdmin && (
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
                   onOpenAdmin();
                 }}
-                className="w-full py-2.5 text-center text-xs uppercase tracking-wider font-semibold rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:text-white cursor-pointer"
+                className="w-full py-2.5 text-center text-xs uppercase tracking-wider font-semibold rounded-lg bg-emerald-600/20 border border-emerald-500/30 text-emerald-300 hover:text-white cursor-pointer"
               >
                 Owner Site Control Studio 🔐
               </button>
