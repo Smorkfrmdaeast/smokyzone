@@ -35,7 +35,7 @@ interface OwnerAuthModalProps {
 }
 
 export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const [email, setEmail] = useState(OWNER_EMAIL);
+  const [email, setEmail] = useState<string>(OWNER_EMAIL);
   const [passcode, setPasscode] = useState('');
   const [confirmPasscode, setConfirmPasscode] = useState('');
   const [showPasscode, setShowPasscode] = useState(false);
