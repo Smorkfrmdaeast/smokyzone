@@ -1,0 +1,45 @@
+name: Deploy Smoky Zone Firebase Storage Rules
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - storage.rules
+      - .github/workflows/deploy-firebase-storage-rules.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-storage-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify Firebase deployment credential is configured
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "::error::Missing GitHub Actions secret FIREBASE_SERVICE_ACCOUNT. Add a Firebase service-account JSON with Firebase Rules Admin permissions, then rerun this workflow."
+            exit 1
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+
+      - name: Deploy Storage rules only
+        run: firebase deploy --only storage --project solid-rush-vn2tx --non-interactive
