@@ -1,4 +1,4 @@
-name: Deploy Smoky Zone Firebase Storage Rules
+name: Deploy Smoky Zone Firebase Security Rules
 
 on:
   push:
@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - storage.rules
+      - firestore.rules
+      - firebase.json
       - .github/workflows/deploy-firebase-storage-rules.yml
   workflow_dispatch:
 
@@ -13,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  deploy-storage-rules:
+  deploy-firebase-security-rules:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -41,5 +43,5 @@ jobs:
       - name: Install Firebase CLI
         run: npm install --global firebase-tools
 
-      - name: Deploy Storage rules only
-        run: firebase deploy --only storage --project solid-rush-vn2tx --non-interactive
+      - name: Deploy Firestore and Storage rules to the existing configured database and bucket
+        run: firebase deploy --only firestore:rules,storage --project solid-rush-vn2tx --non-interactive

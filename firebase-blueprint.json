@@ -102,7 +102,7 @@
         },
         "owner_email": {
           "type": "string",
-          "description": "Verified owner email (ifeanyinuels32@gmail.com)"
+          "description": "Verified email of the authenticated owner account; limited to the explicit application owner allowlist"
         },
         "owner_uid": {
           "type": "string",
@@ -121,7 +121,7 @@
           "description": "Device summary string"
         }
       },
-      "required": ["owner_registered", "owner_email", "owner_uid"]
+      "properties": {\n        "owner_uids": { "type": "array", "items": { "type": "string" }, "description": "Firebase Auth UIDs for approved owner Google accounts" },\n        "owner_emails": { "type": "array", "items": { "type": "string" }, "description": "Approved owner emails paired by index with owner_uids" }\n      },\n      "required": ["owner_registered", "owner_email", "owner_uid"]
     },
     "ActivityLog": {
       "title": "ActivityLog",

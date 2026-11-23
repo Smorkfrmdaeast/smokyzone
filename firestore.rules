@@ -5,10 +5,25 @@ service cloud.firestore {
       return /databases/$(database)/documents/system/admin_status;
     }
 
+    function approvedOwnerEmail() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          'ifeanyinuels32@gmail.com',
+          'nuelsbussiness@gmail.com'
+        ];
+    }
+
     function isOwner() {
       return request.auth != null
         && exists(ownerPath())
-        && get(ownerPath()).data.owner_uid == request.auth.uid;
+        && (
+          get(ownerPath()).data.owner_uid == request.auth.uid
+          || (
+            get(ownerPath()).data.keys().hasAny(['owner_uids'])
+            && get(ownerPath()).data.owner_uids.hasAny([request.auth.uid])
+          )
+        );
     }
 
     function isValidId(id) {
@@ -18,7 +33,6 @@ service cloud.firestore {
         && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
-    // Public website content and media metadata; only the registered owner can change it.
     match /site_content/{settingId} {
       allow read: if isValidId(settingId);
       allow create, update, delete: if isOwner() && isValidId(settingId);
@@ -29,28 +43,47 @@ service cloud.firestore {
       allow create, update, delete: if isOwner() && isValidId(mediaId);
     }
 
-    // Private owner record. The first authenticated account claims the single owner slot.
+    // First approved account bootstraps the owner record. A second approved
+    // account may add only its own UID/email; the primary owner UID is immutable.
     match /system/admin_status {
-      allow read: if request.auth != null && resource.data.owner_uid == request.auth.uid;
-      allow create: if request.auth != null
+      allow read: if isOwner() || approvedOwnerEmail();
+      allow create: if approvedOwnerEmail()
         && !exists(ownerPath())
         && request.resource.data.owner_registered == true
-        && request.auth.token.email == 'ifeanyinuels32@gmail.com'
-        && request.resource.data.owner_email == 'ifeanyinuels32@gmail.com'
+        && request.resource.data.owner_email == request.auth.token.email
         && request.resource.data.owner_uid == request.auth.uid
+        && request.resource.data.owner_uids == [request.auth.uid]
+        && request.resource.data.owner_emails == [request.auth.token.email]
         && request.resource.data.keys().hasOnly([
-          'owner_registered', 'owner_uid', 'owner_email', 'createdAt', 'createdDevice'
+          'owner_registered', 'owner_uid', 'owner_email',
+          'owner_uids', 'owner_emails', 'createdAt', 'createdDevice'
         ]);
-      allow update: if isOwner()
-        && request.resource.data.owner_uid == resource.data.owner_uid
-        && request.resource.data.owner_registered == true;
+      allow update: if (
+          isOwner()
+          && request.resource.data.owner_uid == resource.data.owner_uid
+          && request.resource.data.owner_registered == true
+        ) || (
+          approvedOwnerEmail()
+          && resource.data.owner_registered == true
+          && request.resource.data.owner_registered == true
+          && request.resource.data.owner_uid == resource.data.owner_uid
+          && request.resource.data.owner_uids is list
+          && request.resource.data.owner_emails is list
+          && (!resource.data.keys().hasAny(['owner_uids'])
+            || request.resource.data.owner_uids.hasAll(resource.data.owner_uids))
+          && (!resource.data.keys().hasAny(['owner_emails'])
+            || request.resource.data.owner_emails.hasAll(resource.data.owner_emails))
+          && request.resource.data.owner_uids.hasAny([request.auth.uid])
+          && request.resource.data.owner_emails.hasAny([request.auth.token.email])
+          && request.resource.data.owner_uids.size() <= 2
+          && request.resource.data.owner_emails.size() <= 2
+        );
       allow delete: if false;
     }
 
-    // Public setup indicator contains only a boolean. It is created atomically with admin_status.
     match /system/owner_status {
       allow read: if true;
-      allow create: if request.auth != null
+      allow create: if approvedOwnerEmail()
         && !exists(/databases/$(database)/documents/system/owner_status)
         && request.resource.data.keys().hasOnly(['owner_registered'])
         && request.resource.data.owner_registered == true
@@ -58,12 +91,10 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Activity records are private to the registered owner.
     match /activity_logs/{logId} {
       allow read, write: if isOwner();
     }
 
-    // Everything else remains denied.
     match /{document=**} {
       allow read, write: if false;
     }

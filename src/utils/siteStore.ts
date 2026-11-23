@@ -14,7 +14,7 @@ import {
 } from '../data';
 import { db, auth, storage, firebaseConfig } from '../firebase';
 import { signOut } from 'firebase/auth';
-import { doc, getDoc, getDocFromServer, setDoc, deleteDoc, onSnapshot, collection, writeBatch } from 'firebase/firestore';
+import { arrayUnion, doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc, onSnapshot, collection, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject, getMetadata } from 'firebase/storage';
 
 const DB_NAME = 'smokyzone_db';
@@ -1877,9 +1877,10 @@ export const initCloudSync = (): (() => void) => {
   }
 };
 
-// Strict Single-Owner Identity Gate
-export const OWNER_EMAIL_DISPLAY = 'Ifeanyinuels32@gmail.com';
-export const OWNER_EMAIL = 'ifeanyinuels32@gmail.com';
+// Only these two verified Google accounts can administer Smoky Zone.
+export const OWNER_EMAILS = ['ifeanyinuels32@gmail.com', 'nuelsbussiness@gmail.com'] as const;
+export const OWNER_EMAIL_DISPLAY = 'approved Google accounts';
+export const OWNER_EMAIL = OWNER_EMAILS[0];
 export const ADMIN_SESSION_KEY = 'smokyzone_admin_auth_session';
 const VERIFIED_SESSION_CACHE_KEY = 'smokyzone_verified_owner_cache_v1';
 
@@ -2040,7 +2041,7 @@ export const isFirebaseUserEmailVerified = (
 
 export const isVerifiedOwnerEmail = (email?: string | null): boolean => {
   const norm = normalizeEmail(email);
-  return norm === OWNER_EMAIL;
+  return OWNER_EMAILS.includes(norm as (typeof OWNER_EMAILS)[number]);
 };
 
 export const hasActivePasscodeSession = (): boolean => {
@@ -2101,27 +2102,39 @@ export const ensureOwnerAdminStatusDoc = async (deviceInfo?: string): Promise<bo
 
   const adminStatusRef = doc(db, 'system', 'admin_status');
   const ownerStatusRef = doc(db, 'system', 'owner_status');
+  const normalizedEmail = email.trim().toLowerCase();
   const registration = {
     owner_registered: true,
-    owner_email: OWNER_EMAIL,
+    owner_email: normalizedEmail,
     owner_uid: user.uid,
+    owner_uids: [user.uid],
+    owner_emails: [normalizedEmail],
     createdAt: new Date().toISOString(),
     createdDevice: deviceInfo || 'Unknown Device',
   };
 
   try {
-    // Firestore rules require the private owner record and public setup flag
-    // to be created in the same atomic write on first registration.
-    const ownerStatus = await getDoc(ownerStatusRef);
-    if (!ownerStatus.exists()) {
+    const [ownerStatus, adminStatus] = await Promise.all([
+      getDoc(ownerStatusRef),
+      getDoc(adminStatusRef),
+    ]);
+
+    if (!adminStatus.exists()) {
+      if (ownerStatus.exists()) {
+        throw new Error('Owner setup indicator exists but system/admin_status is missing. Repair the existing owner record before signing in.');
+      }
+      // First approved account atomically claims the owner record and setup flag.
       const batch = writeBatch(db);
-      batch.set(adminStatusRef, registration, { merge: true });
+      batch.set(adminStatusRef, registration);
       batch.set(ownerStatusRef, { owner_registered: true });
       await batch.commit();
     } else {
-      // Keep create payload limited to the exact fields allowed by firestore.rules.
-      // The same payload is also a valid owner-only update for an existing record.
-      await setDoc(adminStatusRef, registration, { merge: true });
+      // Preserve the primary owner UID and add this approved account's UID.
+      await updateDoc(adminStatusRef, {
+        owner_registered: true,
+        owner_uids: arrayUnion(user.uid),
+        owner_emails: arrayUnion(normalizedEmail),
+      });
     }
 
     return true;
@@ -2145,6 +2158,8 @@ export const checkOwnerAdminStatusDoc = async (): Promise<{
   matchesOwnerUid: boolean;
   ownerRegistered?: boolean;
   ownerEmail?: string;
+  ownerEmails?: string[];
+  ownerUids?: string[];
   error?: string;
 }> => {
   const user = auth.currentUser;
@@ -2165,7 +2180,9 @@ export const checkOwnerAdminStatusDoc = async (): Promise<{
       exists: true,
       ownerRegistered: data.owner_registered === true,
       ownerEmail: typeof data.owner_email === 'string' ? data.owner_email : undefined,
-      matchesOwnerUid: data.owner_uid === user.uid,
+      ownerEmails: Array.isArray(data.owner_emails) ? data.owner_emails.filter((value): value is string => typeof value === 'string') : undefined,
+      ownerUids: Array.isArray(data.owner_uids) ? data.owner_uids.filter((value): value is string => typeof value === 'string') : undefined,
+      matchesOwnerUid: data.owner_uid === user.uid || (Array.isArray(data.owner_uids) && data.owner_uids.includes(user.uid)),
     };
   } catch (err) {
     return {

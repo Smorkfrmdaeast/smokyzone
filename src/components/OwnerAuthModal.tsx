@@ -25,6 +25,7 @@ import {
   isUserAdminAuthenticated,
   hasFirebaseGoogleOwnerSession,
   OWNER_EMAIL_DISPLAY,
+  OWNER_EMAIL,
 } from '../utils/siteStore';
 
 interface OwnerAuthModalProps {
@@ -34,7 +35,7 @@ interface OwnerAuthModalProps {
 }
 
 export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const [email, setEmail] = useState(OWNER_EMAIL_DISPLAY);
+  const [email, setEmail] = useState(OWNER_EMAIL);
   const [passcode, setPasscode] = useState('');
   const [confirmPasscode, setConfirmPasscode] = useState('');
   const [showPasscode, setShowPasscode] = useState(false);
@@ -61,7 +62,7 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({ isOpen, onClose,
       return;
     }
 
-    setEmail(OWNER_EMAIL_DISPLAY);
+    setEmail(OWNER_EMAIL);
     setPasscode('');
     setConfirmPasscode('');
     setShowPasscode(false);
@@ -113,7 +114,7 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({ isOpen, onClose,
 
     try {
       await loginOwnerWithGoogle({ forceAccountChooser: true });
-      setSuccessMsg(`Signed in as ${OWNER_EMAIL_DISPLAY}! Cloud Firestore & Storage ready.`);
+      setSuccessMsg('Approved Google account verified. Checking Cloud Firestore & Storage access…');
       onSuccessRef.current();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Google sign-in failed.';
@@ -244,7 +245,7 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({ isOpen, onClose,
             <span>
               {isGoogleLoading
                 ? 'Connecting Google Account...'
-                : `Continue with Google (${OWNER_EMAIL_DISPLAY})`}
+                : 'Continue with Google (either approved account)'}
             </span>
           </button>
           <p className="text-[11px] text-slate-400 leading-relaxed">
@@ -387,7 +388,7 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({ isOpen, onClose,
 
         <div className="mt-4 pt-3 border-t border-white/10 flex items-center gap-2 text-[11px] text-slate-400">
           <ShieldCheck className="w-3.5 h-3.5 text-[#1E90FF] flex-shrink-0" />
-          <span>Locked to {OWNER_EMAIL_DISPLAY} · Stays signed in until logout</span>
+          <span>Approved owner accounts only · Stays signed in until logout</span>
         </div>
       </div>
     </div>

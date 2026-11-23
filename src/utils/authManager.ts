@@ -155,18 +155,18 @@ export const setupOwnerPasscode = async (
   localStorage.setItem(PASSCODE_HASH_KEY, digest);
   localStorage.setItem('smokyzone_owner_initialized', 'true');
   clearFailedAttempts();
-  setPasscodeSession(OWNER_EMAIL);
+  setPasscodeSession(email.trim().toLowerCase());
 
   console.info('[SmokyZone Auth] Owner passcode created and session unlocked:', OWNER_EMAIL_DISPLAY);
   window.dispatchEvent(
     new CustomEvent('smokyzone_auth_change', {
-      detail: { authenticated: true, email: OWNER_EMAIL, userInitiated: true },
+      detail: { authenticated: true, email: email.trim().toLowerCase(), userInitiated: true },
     })
   );
 
   addActivityLog(
     'Owner Passcode Set',
-    `Owner Studio passcode configured for ${OWNER_EMAIL_DISPLAY} on ${getDeviceInfo()}`,
+    `Owner Studio passcode configured for ${email.trim().toLowerCase()} on ${getDeviceInfo()}`,
     'security'
   );
 };
@@ -209,7 +209,7 @@ export const loginOwnerWithPasscode = async (email: string, passcode: string): P
 
   addActivityLog(
     'Owner Logged In (Passcode)',
-    `Signed in as ${OWNER_EMAIL_DISPLAY} on ${getDeviceInfo()}`,
+    `Signed in as ${email.trim().toLowerCase()} on ${getDeviceInfo()}`,
     'security'
   );
 };
@@ -376,13 +376,16 @@ export const resolveFirebaseUserIdentity = async (
   } else if (isGoogleProviderLinked) {
     // Fallback check against authoritative Firestore system/admin_status doc (when UID rules are deployed)
     const statusDoc = await checkOwnerAdminStatusDoc().catch(() => null);
+    const ownerIndex = statusDoc?.ownerUids?.indexOf(user.uid) ?? -1;
+    const registeredEmail =
+      ownerIndex >= 0 ? statusDoc?.ownerEmails?.[ownerIndex] : statusDoc?.ownerEmail;
     if (
       statusDoc?.exists &&
       statusDoc.ownerRegistered &&
-      isVerifiedOwnerEmail(statusDoc.ownerEmail) &&
-      statusDoc.matchesOwnerUid
+      statusDoc.matchesOwnerUid &&
+      isVerifiedOwnerEmail(registeredEmail)
     ) {
-      resolvedEmail = OWNER_EMAIL;
+      resolvedEmail = registeredEmail || OWNER_EMAIL;
       source = 'firestore.system/admin_status';
       uidConfirmed = true;
     }
@@ -412,7 +415,7 @@ export const resolveFirebaseUserIdentity = async (
   return identity;
 };
 
-// Google Sign-In locked strictly to Ifeanyinuels32@gmail.com
+// Google Sign-In restricted to the two explicitly approved owner accounts.
 export const loginOwnerWithGoogle = async (options?: { forceAccountChooser?: boolean }): Promise<User> => {
   if (typeof auth.authStateReady === 'function') {
     await auth.authStateReady().catch(() => {});
@@ -461,12 +464,8 @@ export const loginOwnerWithGoogle = async (options?: { forceAccountChooser?: boo
     const provider = new GoogleAuthProvider();
     provider.addScope('email');
     provider.addScope('profile');
-    // Always show account chooser + hint so users signed into another Google account (e.g. nuelsbussiness@gmail.com)
-    // can reliably pick ifeanyinuels32@gmail.com
-    provider.setCustomParameters({
-      prompt: 'select_account',
-      login_hint: OWNER_EMAIL_DISPLAY,
-    });
+    // Always show the chooser so either approved Google account can be selected.
+    provider.setCustomParameters({ prompt: 'select_account' });
 
     const cred = await signInWithPopup(auth, provider);
     // Force refresh ID token so claims reflect latest Firebase Auth state
@@ -494,10 +493,10 @@ export const loginOwnerWithGoogle = async (options?: { forceAccountChooser?: boo
       window.dispatchEvent(new CustomEvent('smokyzone_auth_change', { detail: { authenticated: false } }));
       throw new Error(
         resolvedEmail
-          ? `Signed in as ${resolvedEmail}, which is not the owner account. Please select ${OWNER_EMAIL_DISPLAY} in the Google chooser.`
+          ? `Signed in as ${resolvedEmail}, which is not on the Smoky Zone owner allowlist. Select one of the approved owner Google accounts.`
           : `Google sign-in completed (UID: ${cred.user.uid}) without an email claim (claims: ${
               identity.claimKeys?.join(', ') || 'none'
-            }). Select ${OWNER_EMAIL_DISPLAY} in the Google chooser.`
+            }). Select one of the approved owner Google accounts.`
       );
     }
 
@@ -571,7 +570,7 @@ export const loginOwnerWithGoogle = async (options?: { forceAccountChooser?: boo
       );
     }
     if (code === 'auth/popup-closed-by-user' || errMsg.includes('auth/popup-closed-by-user')) {
-      throw new Error('Google sign-in popup was closed before finishing. Please try again and select Ifeanyinuels32@gmail.com.');
+      throw new Error('Google sign-in popup was closed before finishing. Please try again and select one of the approved owner Google accounts.');
     }
     if (code === 'auth/cancelled-popup-request' || errMsg.includes('auth/cancelled-popup-request')) {
       throw new Error('Another sign-in popup was already open. Please close extra popups and try again.');
