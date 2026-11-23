@@ -14,7 +14,7 @@ import {
 } from '../data';
 import { db, auth, storage, firebaseConfig } from '../firebase';
 import { signOut } from 'firebase/auth';
-import { doc, getDoc, getDocFromServer, setDoc, deleteDoc, onSnapshot, collection } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, setDoc, deleteDoc, onSnapshot, collection, writeBatch } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject, getMetadata } from 'firebase/storage';
 
 const DB_NAME = 'smokyzone_db';
@@ -2049,18 +2049,32 @@ export const ensureOwnerAdminStatusDoc = async (deviceInfo?: string): Promise<bo
   if (!user || !email || !isVerifiedOwnerEmail(email) || !emailVerified) {
     return false;
   }
+
+  const adminStatusRef = doc(db, 'system', 'admin_status');
+  const ownerStatusRef = doc(db, 'system', 'owner_status');
+  const registration = {
+    owner_registered: true,
+    owner_email: OWNER_EMAIL,
+    owner_uid: user.uid,
+    createdAt: new Date().toISOString(),
+    createdDevice: deviceInfo || 'Unknown Device',
+  };
+
   try {
-    // Keep the create payload aligned with firestore.rules' strict allowlist.
-    // The first owner document must not contain diagnostic/session fields.
-    await setDoc(
-      doc(db, 'system', 'admin_status'),
-      {
-        owner_registered: true,
-        owner_email: OWNER_EMAIL,
-        owner_uid: user.uid,
-      },
-      { merge: true }
-    );
+    // Firestore rules require the private owner record and public setup flag
+    // to be created in the same atomic write on first registration.
+    const ownerStatus = await getDoc(ownerStatusRef);
+    if (!ownerStatus.exists()) {
+      const batch = writeBatch(db);
+      batch.set(adminStatusRef, registration, { merge: true });
+      batch.set(ownerStatusRef, { owner_registered: true });
+      await batch.commit();
+    } else {
+      // Keep create payload limited to the exact fields allowed by firestore.rules.
+      // The same payload is also a valid owner-only update for an existing record.
+      await setDoc(adminStatusRef, registration, { merge: true });
+    }
+
     return true;
   } catch (err) {
     const errInfo = handleFirestoreError(err, OperationType.WRITE, 'system/admin_status');
@@ -2070,8 +2084,8 @@ export const ensureOwnerAdminStatusDoc = async (deviceInfo?: string): Promise<bo
     updateCloudSyncState({
       status: 'error',
       error: missingTokenEmail
-        ? `Signed in as ${email} (UID: ${user.uid}), but Firestore denied system/admin_status because the ID token lacks an email claim. Deploy the updated firestore.rules & storage.rules (and verify system/admin_status.owner_uid = ${user.uid}) to ${FIRESTORE_DATABASE_ID}.`
-        : `Could not sync system/admin_status (${errInfo.error}). Verify deployed firestore.rules on ${FIRESTORE_DATABASE_ID} for UID ${user.uid}.`,
+        ? `Signed in as ${email} (UID: ${user.uid}), but Firestore denied owner registration because the ID token lacks an email claim. Verify the deployed firestore.rules on ${FIRESTORE_DATABASE_ID}.`
+        : `Could not register owner in system/admin_status (${errInfo.error}). Verify deployed firestore.rules on ${FIRESTORE_DATABASE_ID}.`,
     });
     throw err;
   }
