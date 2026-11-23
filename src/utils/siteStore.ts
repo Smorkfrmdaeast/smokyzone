@@ -829,7 +829,7 @@ export const uploadAudioTrackToStorage = async (
 ): Promise<MediaUploadResult> => {
   const sanitizedKey = `audio_track_${trackId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
   const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_') || `${trackId}.mp3`;
-  const storagePath = `audio/tracks/${trackId.replace(/[^a-zA-Z0-9_-]/g, '_')}/${cleanName}`;
+  const storagePath = `audio/${trackId.replace(/[^a-zA-Z0-9_-]/g, '_')}_${cleanName}`;
   return setMediaItem(sanitizedKey, file, file.type || 'audio/mpeg', onProgress, storagePath);
 };
 
