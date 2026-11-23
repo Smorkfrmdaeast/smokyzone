@@ -955,7 +955,7 @@ export const setMediaItem = async (
       const targetPath =
         explicitStoragePath ||
         (category === 'audio'
-          ? `media/audio/${sanitizedKey}.${ext}`
+          ? `audio/${sanitizedKey}.${ext}`
           : category === 'videos'
           ? `media/videos/${sanitizedKey}.${ext}`
           : `media/images/${sanitizedKey}.${ext}`);
