@@ -5,13 +5,28 @@ service cloud.firestore {
       return /databases/$(database)/documents/system/admin_status;
     }
 
-    function approvedOwnerEmail() {
+    function isApprovedOwnerEmail(email) {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email in [
+        && email in [
           'ifeanyinuels32@gmail.com',
           'nuelsbussiness@gmail.com'
-        ];
+        ]
+        && (
+          request.auth.token.email == email
+          || (
+            request.auth.token.keys().hasAny(['firebase'])
+            && request.auth.token.firebase.keys().hasAny(['identities'])
+            && request.auth.token.firebase.identities.keys().hasAny(['google.com'])
+            && request.auth.token.firebase.identities['google.com'] is list
+            && request.auth.token.firebase.identities['google.com'].hasAny([email])
+          )
+        );
+    }
+
+    function approvedOwnerEmail() {
+      return isApprovedOwnerEmail('ifeanyinuels32@gmail.com')
+        || isApprovedOwnerEmail('nuelsbussiness@gmail.com');
     }
 
     function isOwner() {
@@ -50,10 +65,10 @@ service cloud.firestore {
       allow create: if approvedOwnerEmail()
         && !exists(ownerPath())
         && request.resource.data.owner_registered == true
-        && request.resource.data.owner_email == request.auth.token.email
+        && isApprovedOwnerEmail(request.resource.data.owner_email)
         && request.resource.data.owner_uid == request.auth.uid
         && request.resource.data.owner_uids == [request.auth.uid]
-        && request.resource.data.owner_emails == [request.auth.token.email]
+        && request.resource.data.owner_emails == [request.resource.data.owner_email]
         && request.resource.data.keys().hasOnly([
           'owner_registered', 'owner_uid', 'owner_email',
           'owner_uids', 'owner_emails', 'createdAt', 'createdDevice'
@@ -74,7 +89,10 @@ service cloud.firestore {
           && (!resource.data.keys().hasAny(['owner_emails'])
             || request.resource.data.owner_emails.hasAll(resource.data.owner_emails))
           && request.resource.data.owner_uids.hasAny([request.auth.uid])
-          && request.resource.data.owner_emails.hasAny([request.auth.token.email])
+          && (
+            (request.resource.data.owner_emails.hasAny(['ifeanyinuels32@gmail.com']) && isApprovedOwnerEmail('ifeanyinuels32@gmail.com'))
+            || (request.resource.data.owner_emails.hasAny(['nuelsbussiness@gmail.com']) && isApprovedOwnerEmail('nuelsbussiness@gmail.com'))
+          )
           && request.resource.data.owner_uids.size() <= 2
           && request.resource.data.owner_emails.size() <= 2
         );
