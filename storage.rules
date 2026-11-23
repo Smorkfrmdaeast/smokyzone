@@ -6,17 +6,40 @@ service firebase.storage {
         && firestore.get(/databases/ai-studio-smokyzone-d5b406ce-4d73-4af4-b06f-7fc6e2d05b4a/documents/system/admin_status).data.owner_uid == request.auth.uid;
     }
 
-    match /audio/{audioFile} {
-      // Published audio can be streamed by website visitors.
+    // Public visitors can view published site media. Only the verified owner
+    // can upload, replace, or delete files.
+    match /audio/{fileName} {
       allow read: if true;
-
-      // Only the registered owner can upload, replace, or delete audio.
       allow write: if isOwner()
         && (
           request.resource == null
           || (
             request.resource.size <= 50 * 1024 * 1024
             && request.resource.contentType.matches('audio/.*')
+          )
+        );
+    }
+
+    match /media/images/{fileName} {
+      allow read: if true;
+      allow write: if isOwner()
+        && (
+          request.resource == null
+          || (
+            request.resource.size <= 15 * 1024 * 1024
+            && request.resource.contentType.matches('image/.*')
+          )
+        );
+    }
+
+    match /media/videos/{fileName} {
+      allow read: if true;
+      allow write: if isOwner()
+        && (
+          request.resource == null
+          || (
+            request.resource.size <= 100 * 1024 * 1024
+            && request.resource.contentType.matches('video/.*')
           )
         );
     }
