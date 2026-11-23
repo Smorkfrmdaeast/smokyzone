@@ -2050,16 +2050,14 @@ export const ensureOwnerAdminStatusDoc = async (deviceInfo?: string): Promise<bo
     return false;
   }
   try {
+    // Keep the create payload aligned with firestore.rules' strict allowlist.
+    // The first owner document must not contain diagnostic/session fields.
     await setDoc(
       doc(db, 'system', 'admin_status'),
       {
         owner_registered: true,
         owner_email: OWNER_EMAIL,
         owner_uid: user.uid,
-        email_verified: true,
-        lastSignedInEmail: email,
-        lastGoogleSignIn: new Date().toISOString(),
-        ...(deviceInfo ? { device: deviceInfo } : {}),
       },
       { merge: true }
     );
