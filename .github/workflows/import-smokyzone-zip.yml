@@ -43,16 +43,14 @@ jobs:
           print(f"Validated {len(z.infolist())} archive entries.")
           PY
 
-      - name: Extract project without touching AI Studio workspace
+      - name: Extract project and preserve AI Studio workspace
         run: |
           set -euo pipefail
-          ZIP_FILE="smokyzone-review-cloud-sync-fix.zip"
           EXTRACT_DIR="$(mktemp -d)"
-          unzip -q "$ZIP_FILE" -d "$EXTRACT_DIR"
+          unzip -q "smokyzone-review-cloud-sync-fix.zip" -d "$EXTRACT_DIR"
           rsync -a --exclude='.aistudio/' --exclude='.git/' "$EXTRACT_DIR"/ "$GITHUB_WORKSPACE"/
           rm -rf "$EXTRACT_DIR"
-          rm -f "$ZIP_FILE"
-          # The corrected static Vite project does not use the old Express writer.
+          rm -f "smokyzone-review-cloud-sync-fix.zip"
           rm -f server.ts
 
       - name: Commit imported project to review branch
@@ -71,7 +69,7 @@ jobs:
       - name: Install dependencies and run production build
         run: |
           set -euo pipefail
-          npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+          npm install --no-audit --no-fund --package-lock=false
           npm run build
 
       - name: Report result
