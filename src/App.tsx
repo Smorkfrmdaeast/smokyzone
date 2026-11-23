@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { SmorksTechLogo } from './components/SmorksTechLogo';
 import { AudioPlayer } from './components/AudioPlayer';
@@ -10,12 +10,22 @@ import { FloatingAdminButton } from './components/FloatingAdminButton';
 import { OwnerAuthModal } from './components/OwnerAuthModal';
 import { AdminPortalModal } from './components/AdminPortalModal';
 import { ShortVideoPreviewCard } from './components/ShortVideoPreviewCard';
+import { NotFoundPage } from './components/NotFoundPage';
+import { GlobalMusicBar } from './components/GlobalMusicBar';
+import { FirebaseDiagnostics } from './components/FirebaseDiagnostics';
 import {
   SiteConfig,
   getStoredConfig,
   initCloudSync,
   isUserAdminAuthenticated,
+  getUserPrimaryEmail,
+  isVerifiedOwnerEmail,
+  markFirebaseAuthInitialized,
+  setVerifiedOwnerSessionCache,
 } from './utils/siteStore';
+import { initOwnerSessionGuard, resolveFirebaseUserIdentity } from './utils/authManager';
+import { auth } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import {
   SMORK_BIO,
   TECH_SERVICES,
@@ -48,12 +58,24 @@ import {
   Award,
   Radio,
   Music,
+  Lock,
 } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [siteConfig, setSiteConfig] = useState<SiteConfig>(getStoredConfig());
   const [isOwnerAuthModalOpen, setIsOwnerAuthModalOpen] = useState(false);
   const [isAdminPortalOpen, setIsAdminPortalOpen] = useState(false);
+  const [currentPath, setCurrentPath] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.pathname;
+    }
+    return '/';
+  });
+  const [isOwnerSignedIn, setIsOwnerSignedIn] = useState<boolean>(() => isUserAdminAuthenticated());
+  const isOwnerAuthModalOpenRef = useRef(isOwnerAuthModalOpen);
+  isOwnerAuthModalOpenRef.current = isOwnerAuthModalOpen;
+
+  const handleOpenAdminRef = useRef<() => void>(() => {});
 
   const [selectedServiceCategory, setSelectedServiceCategory] = useState<'all' | 'web' | 'phone' | 'va'>('all');
   const [selectedProjectCategory, setSelectedProjectCategory] = useState<'all' | 'web' | 'phone' | 'va' | 'marketing'>('all');
@@ -66,6 +88,48 @@ export const App: React.FC = () => {
   const [contactEmail, setContactEmail] = useState<string>('');
   const [contactMessage, setContactMessage] = useState<string>('');
   const [formSubmitted, setFormSubmitted] = useState<boolean>(false);
+
+  const handleOpenAdmin = () => {
+    const authVerified = isOwnerSignedIn || isUserAdminAuthenticated();
+    console.info('[SmokyZone Auth] handleOpenAdmin clicked:', {
+      isOwnerSignedIn,
+      authCurrentUser: getUserPrimaryEmail(auth.currentUser),
+      isAuthAdmin: isUserAdminAuthenticated(),
+      authVerified,
+    });
+    if (authVerified) {
+      setIsOwnerSignedIn(true);
+      setIsOwnerAuthModalOpen(false);
+      setIsAdminPortalOpen(true);
+    } else {
+      setIsAdminPortalOpen(false);
+      setIsOwnerAuthModalOpen(true);
+    }
+  };
+  handleOpenAdminRef.current = handleOpenAdmin;
+
+  // Reactive state synchronization: whenever isOwnerSignedIn becomes true while auth modal or /admin route is active, launch AdminPortalModal immediately
+  useEffect(() => {
+    console.debug('[SmokyZone Auth] App modal sync state:', {
+      isOwnerSignedIn,
+      isOwnerAuthModalOpen,
+      isAdminPortalOpen,
+      path: typeof window !== 'undefined' ? window.location.pathname : '',
+    });
+
+    if (isOwnerSignedIn && isOwnerAuthModalOpen) {
+      console.info('[SmokyZone Auth] Verified owner detected while auth modal open -> launching AdminPortalModal');
+      setIsOwnerAuthModalOpen(false);
+      setIsAdminPortalOpen(true);
+    } else if (
+      isOwnerSignedIn &&
+      typeof window !== 'undefined' &&
+      (window.location.pathname === '/admin' || window.location.pathname === '/admin/' || window.location.hash === '#admin')
+    ) {
+      setIsOwnerAuthModalOpen(false);
+      setIsAdminPortalOpen(true);
+    }
+  }, [isOwnerSignedIn, isOwnerAuthModalOpen, isAdminPortalOpen]);
 
   useEffect(() => {
     // Initialize Cloud Firestore real-time sync
@@ -81,19 +145,124 @@ export const App: React.FC = () => {
     };
 
     window.addEventListener('smokyzone_config_change', handleConfigChange);
+
+    // Route detection (/admin direct reach, #admin, or 404 detection)
+    const handleLocation = () => {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      setCurrentPath(path);
+
+      if (path === '/admin' || path === '/admin/' || hash === '#admin') {
+        if (isUserAdminAuthenticated()) {
+          console.info('[SmokyZone Auth] /admin route detected with active owner session -> opening AdminPortalModal');
+          setIsOwnerSignedIn(true);
+          setIsAdminPortalOpen(true);
+          setIsOwnerAuthModalOpen(false);
+        } else {
+          setIsAdminPortalOpen(false);
+          setIsOwnerAuthModalOpen(true);
+        }
+      }
+    };
+
+    handleLocation();
+    window.addEventListener('popstate', handleLocation);
+    window.addEventListener('hashchange', handleLocation);
+
+    const handleAuthCustom = (ev: Event) => {
+      const custom = ev as CustomEvent<{
+        authenticated?: boolean;
+        email?: string | null;
+        userInitiated?: boolean;
+      }>;
+      const isAuth = Boolean(
+        (custom.detail?.authenticated &&
+          (!custom.detail.email || isVerifiedOwnerEmail(custom.detail.email))) ||
+          isUserAdminAuthenticated()
+      );
+      console.info('[SmokyZone Auth] App smokyzone_auth_change event:', {
+        detail: custom.detail,
+        resolvedIsAuth: isAuth,
+        authModalOpen: isOwnerAuthModalOpenRef.current,
+      });
+      setIsOwnerSignedIn(isAuth);
+      if (
+        isAuth &&
+        (isOwnerAuthModalOpenRef.current ||
+          custom.detail?.userInitiated ||
+          window.location.pathname === '/admin' ||
+          window.location.pathname === '/admin/' ||
+          window.location.hash === '#admin')
+      ) {
+        setIsOwnerAuthModalOpen(false);
+        setIsAdminPortalOpen(true);
+      } else if (!isAuth) {
+        setIsAdminPortalOpen(false);
+      }
+    };
+    window.addEventListener('smokyzone_auth_change', handleAuthCustom);
+
+    // Secret shortcut listener: Alt+Shift+S, Alt+Shift+A, or Ctrl/Cmd+Shift+A/S
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isShiftA = (e.ctrlKey || e.metaKey || e.altKey) && e.shiftKey && (e.key === 'A' || e.key === 'a');
+      const isShiftS = (e.ctrlKey || e.metaKey || e.altKey) && e.shiftKey && (e.key === 'S' || e.key === 's');
+      if (isShiftA || isShiftS) {
+        e.preventDefault();
+        handleOpenAdminRef.current();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Sync auth state strictly against verified owner email
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      markFirebaseAuthInitialized();
+      let email = getUserPrimaryEmail(user);
+      if (user && !email) {
+        const identity = await resolveFirebaseUserIdentity(user);
+        email = identity.email;
+      }
+      const isAuth = Boolean(email && isVerifiedOwnerEmail(email)) || isUserAdminAuthenticated();
+      console.info('[SmokyZone Auth] App onAuthStateChanged:', {
+        email,
+        isAuth,
+        authModalOpen: isOwnerAuthModalOpenRef.current,
+        path: window.location.pathname,
+      });
+      if (isAuth && email) {
+        setVerifiedOwnerSessionCache(email);
+      }
+      setIsOwnerSignedIn(isAuth);
+      if (!isAuth) {
+        setIsAdminPortalOpen(false);
+      } else if (
+        isOwnerAuthModalOpenRef.current ||
+        window.location.pathname === '/admin' ||
+        window.location.pathname === '/admin/' ||
+        window.location.hash === '#admin'
+      ) {
+        setIsOwnerAuthModalOpen(false);
+        setIsAdminPortalOpen(true);
+      }
+    });
+
+    // Persistent owner session guard: keeps verified owner signed in until manual logout
+    const unsubSessionGuard = initOwnerSessionGuard(() => {
+      console.info('[SmokyZone Auth] Session revoked callback triggered');
+      setIsAdminPortalOpen(false);
+      setIsOwnerSignedIn(false);
+    });
+
     return () => {
       unsubscribeCloud();
       window.removeEventListener('smokyzone_config_change', handleConfigChange);
+      window.removeEventListener('popstate', handleLocation);
+      window.removeEventListener('hashchange', handleLocation);
+      window.removeEventListener('smokyzone_auth_change', handleAuthCustom);
+      window.removeEventListener('keydown', handleKeyDown);
+      unsubAuth();
+      unsubSessionGuard();
     };
   }, []);
-
-  const handleOpenAdmin = () => {
-    if (isUserAdminAuthenticated()) {
-      setIsAdminPortalOpen(true);
-    } else {
-      setIsOwnerAuthModalOpen(true);
-    }
-  };
 
   const scrollTo = (id: string) => {
     const el = document.getElementById(id);
@@ -107,7 +276,8 @@ export const App: React.FC = () => {
   const activeEmail = siteConfig.labels.contactEmail || SMORK_BIO.email;
   const tiktokLink = siteConfig.labels.tiktokUrl || 'https://tiktok.com/@Smorkfrmdaeast';
   const youtubeLink = siteConfig.labels.youtubeUrl || 'https://youtube.com/@Smorkfrmdaeast';
-  const instagramLink = siteConfig.labels.instagramUrl || 'https://instagram.com/Smork_frmdaeast';
+  const instagramLink = siteConfig.labels.instagramUrl || 'https://instagram.com/Smorkfrmdaeast1';
+  const facebookLink = siteConfig.labels.facebookUrl || 'https://facebook.com/Smorkfrmdaeast1';
   const xLink = siteConfig.labels.xTwitterUrl || 'https://x.com/Smorkfrmdaeast';
 
   const activeProjectsList = siteConfig.projects?.length ? siteConfig.projects : PORTFOLIO_PROJECTS;
@@ -150,6 +320,24 @@ export const App: React.FC = () => {
   const filteredProjects = activeProjectsList.filter(
     (p) => selectedProjectCategory === 'all' || p.category === selectedProjectCategory
   );
+
+  if (
+    currentPath !== '/' &&
+    currentPath !== '/admin' &&
+    currentPath !== '/admin/' &&
+    !currentPath.startsWith('/?') &&
+    !currentPath.startsWith('/#')
+  ) {
+    return (
+      <NotFoundPage
+        onGoHome={() => {
+          window.history.pushState(null, '', '/');
+          setCurrentPath('/');
+        }}
+        onNavigateSection={scrollTo}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#050811] text-[#94a3b8] font-['Plus_Jakarta_Sans',sans-serif] relative selection:bg-[#1E90FF] selection:text-white">
@@ -264,9 +452,18 @@ export const App: React.FC = () => {
                     target="_blank"
                     rel="noreferrer"
                     className="hover:text-[#1E90FF] transition-colors"
-                    title="Instagram"
+                    title="Instagram (@Smorkfrmdaeast1)"
                   >
                     <i className="fa-brands fa-instagram" />
+                  </a>
+                  <a
+                    href={facebookLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-[#1E90FF] transition-colors"
+                    title="Facebook (@Smorkfrmdaeast1)"
+                  >
+                    <i className="fa-brands fa-facebook" />
                   </a>
                   <a
                     href={activeWhatsAppUrl}
@@ -301,6 +498,7 @@ export const App: React.FC = () => {
                     storageKey="hero_portrait"
                     slotLabel="Set Authentic Portrait"
                     allowUpload={true}
+                    priority={true}
                     className="w-full h-full object-cover object-top photo-natural group-hover:scale-102 transition-transform duration-500"
                   />
                   <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-[#050811] via-[#050811]/70 to-transparent">
@@ -706,7 +904,7 @@ export const App: React.FC = () => {
                       {siteConfig.labels.celebrityBadge || 'Drill Music'}
                     </span>
                     <span className="px-3 py-1 rounded-full bg-purple-900/40 text-purple-300 text-xs font-mono border border-purple-500/30">
-                      🔥 Bronx Drill Analyst
+                      🔥 Drill Music
                     </span>
                     <span className="px-3 py-1 rounded-full bg-amber-900/40 text-amber-300 text-xs font-mono border border-amber-500/30">
                       ⚡ Street Party Energy
@@ -761,6 +959,16 @@ export const App: React.FC = () => {
                     >
                       <i className="fa-brands fa-instagram text-sm" />
                       <span>Instagram</span>
+                    </a>
+
+                    <a
+                      href={facebookLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-4 py-2 rounded-xl bg-black/60 hover:bg-blue-600 text-slate-200 hover:text-white border border-white/10 hover:border-blue-600 text-xs font-semibold transition-all flex items-center gap-2 cursor-pointer shadow"
+                    >
+                      <i className="fa-brands fa-facebook text-sm" />
+                      <span>Facebook</span>
                     </a>
 
                     <a
@@ -1188,8 +1396,12 @@ export const App: React.FC = () => {
                   dynamicUrl = siteConfig.labels.tiktokUrl;
                 } else if (p.name.toLowerCase().includes('youtube') && siteConfig.labels.youtubeUrl) {
                   dynamicUrl = siteConfig.labels.youtubeUrl;
-                } else if (p.name.toLowerCase().includes('instagram') && siteConfig.labels.instagramUrl) {
-                  dynamicUrl = siteConfig.labels.instagramUrl;
+                } else if (p.name.toLowerCase().includes('instagram')) {
+                  dynamicUrl = siteConfig.labels.instagramUrl || 'https://instagram.com/Smorkfrmdaeast1';
+                  dynamicHandle = '@Smorkfrmdaeast1';
+                } else if (p.name.toLowerCase().includes('facebook')) {
+                  dynamicUrl = siteConfig.labels.facebookUrl || 'https://facebook.com/Smorkfrmdaeast1';
+                  dynamicHandle = '@Smorkfrmdaeast1';
                 } else if ((p.name.toLowerCase().includes('x') || p.name.toLowerCase().includes('twitter')) && siteConfig.labels.xTwitterUrl) {
                   dynamicUrl = siteConfig.labels.xTwitterUrl;
                 } else if (p.name.toLowerCase().includes('whatsapp')) {
@@ -1226,36 +1438,68 @@ export const App: React.FC = () => {
       {/* Footer */}
       <footer className="py-12 px-4 sm:px-6 lg:px-8 bg-[#050811] text-xs font-mono text-slate-400 border-t border-white/10">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-[#1E90FF]" />
-            <span className="text-white font-bold tracking-wider">SMOKY ZONE</span>
+          <div className="flex items-center gap-2 select-none">
+            <span className="text-white font-bold tracking-wider">
+              SMOKY ZONE
+            </span>
             <span>· Ifeanyi Emmanuel Nnamani</span>
           </div>
 
-          <p className="text-slate-400 text-center sm:text-right">
-            ONE MIND. DIFFERENT WORLDS. ONE AUTHENTIC JOURNEY.
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-slate-400 text-center sm:text-right">
+              ONE MIND. DIFFERENT WORLDS. ONE AUTHENTIC JOURNEY.
+            </p>
+            <button
+              type="button"
+              onClick={handleOpenAdmin}
+              aria-label={isOwnerSignedIn ? 'Open Owner Studio' : 'Owner Studio Access'}
+              title={isOwnerSignedIn ? 'Open Owner Studio' : 'Owner Access'}
+              className={`min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-lg transition-colors cursor-pointer ${
+                isOwnerSignedIn
+                  ? 'text-[#1E90FF] bg-[#1E90FF]/10 hover:bg-[#1E90FF]/20'
+                  : 'text-slate-600 hover:text-slate-300 hover:bg-white/5'
+              }`}
+            >
+              <Lock className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </footer>
 
-      {/* Floating Owner Studio Trigger */}
-      <FloatingAdminButton onClick={handleOpenAdmin} />
+      {/* Headless Firebase Console Diagnostics (logs active config, current user, Firestore & Storage status) */}
+      <FirebaseDiagnostics />
 
-      {/* Secure Firebase Owner Authentication */}
+      {/* Global Music Control Bar (cross-site background sync and play/pause/skip control) */}
+      <GlobalMusicBar />
+
+      {/* Floating Owner Studio Trigger (strictly visible to verified owner only) */}
+      {isOwnerSignedIn && <FloatingAdminButton onClick={handleOpenAdmin} />}
+
+      {/* Owner Auth Modal (Hidden trigger: secret shortcut or /admin only) */}
       <OwnerAuthModal
         isOpen={isOwnerAuthModalOpen}
-        onClose={() => setIsOwnerAuthModalOpen(false)}
-        onSuccess={() => {
+        onClose={() => {
           setIsOwnerAuthModalOpen(false);
+          if (window.location.hash === '#admin') {
+            window.history.pushState(null, '', window.location.pathname);
+          }
+        }}
+        onSuccess={() => {
+          console.info('[SmokyZone Auth] OwnerAuthModal onSuccess -> opening AdminPortalModal');
+          setIsOwnerAuthModalOpen(false);
+          setIsOwnerSignedIn(true);
           setIsAdminPortalOpen(true);
         }}
       />
 
-      {/* Admin Portal Studio Modal */}
-      <AdminPortalModal
-        isOpen={isAdminPortalOpen}
-        onClose={() => setIsAdminPortalOpen(false)}
-      />
+      {/* Admin Portal Studio Modal (strictly rendered for verified owner only) */}
+      {(isOwnerSignedIn || isUserAdminAuthenticated()) && (
+        <AdminPortalModal
+          isOpen={isAdminPortalOpen}
+          isVerifiedSession={isOwnerSignedIn}
+          onClose={() => setIsAdminPortalOpen(false)}
+        />
+      )}
 
       {/* Project Detail Modal */}
       {activeProject && (

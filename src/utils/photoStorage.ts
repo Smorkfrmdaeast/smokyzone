@@ -1,19 +1,44 @@
-// Persistent client-side and cloud photo storage for Smork's official website
-import { getMediaItem, setMediaItem, removeMediaItem, getStoredConfig, saveStoredConfig } from './siteStore';
+import {
+  getMediaItem,
+  setMediaItem,
+  removeMediaItem,
+  getStoredConfig,
+  saveStoredConfig,
+  CODE_SYNCED_FALLBACKS,
+} from './siteStore';
 
 const STORAGE_PREFIX = 'smokyzone_photo_';
 
 export const getStoredPhoto = (key: string): string | null => {
   try {
     const val = localStorage.getItem(`${STORAGE_PREFIX}${key}`);
-    if (val && val.trim() !== '') return val;
+    if (val && val.trim() !== '') {
+      if (val === '/images/bandana_smork.jpg') {
+        localStorage.removeItem(`${STORAGE_PREFIX}${key}`);
+      } else {
+        return val;
+      }
+    }
 
     const mediaVal = localStorage.getItem(`smokyzone_media_${key}`);
-    if (mediaVal && mediaVal.trim() !== '') return mediaVal;
+    if (mediaVal && mediaVal.trim() !== '') {
+      if (mediaVal === '/images/bandana_smork.jpg') {
+        localStorage.removeItem(`smokyzone_media_${key}`);
+      } else {
+        return mediaVal;
+      }
+    }
 
     const config = getStoredConfig();
-    if (config.brandPhotos?.[key]) return config.brandPhotos[key];
-    if (config.projectPhotos?.[key]) return config.projectPhotos[key];
+    const brandVal = config.brandPhotos?.[key];
+    if (brandVal && brandVal !== '/images/bandana_smork.jpg' && brandVal.trim() !== '') {
+      return brandVal;
+    }
+
+    const projectVal = config.projectPhotos?.[key];
+    if (projectVal && projectVal.trim() !== '') {
+      return projectVal;
+    }
 
     return null;
   } catch (err) {
@@ -22,7 +47,7 @@ export const getStoredPhoto = (key: string): string | null => {
   }
 };
 
-export const setStoredPhoto = (key: string, base64Url: string): void => {
+export const setStoredPhoto = async (key: string, base64Url: string): Promise<void> => {
   try {
     localStorage.setItem(`${STORAGE_PREFIX}${key}`, base64Url);
     localStorage.setItem(`smokyzone_media_${key}`, base64Url);
@@ -30,26 +55,36 @@ export const setStoredPhoto = (key: string, base64Url: string): void => {
     console.warn('Storage write error:', err);
   }
 
-  // Update siteConfig brandPhotos or projectPhotos
+  // Sync to cloud (Firebase Storage + Firestore metadata) first to obtain clean HTTPS downloadUrl
+  const uploadResult = await setMediaItem(key, base64Url, 'image/jpeg');
+  const persistedUrl = uploadResult.downloadUrl || base64Url;
+
+  if (uploadResult.downloadUrl) {
+    try {
+      localStorage.setItem(`${STORAGE_PREFIX}${key}`, uploadResult.downloadUrl);
+      localStorage.setItem(`smokyzone_media_${key}`, uploadResult.downloadUrl);
+    } catch {
+      // ignore
+    }
+  }
+
+  // Update siteConfig brandPhotos with the cleanest available URL
   try {
     const config = getStoredConfig();
     const updated = {
       ...config,
       brandPhotos: {
         ...(config.brandPhotos || {}),
-        [key]: base64Url,
+        [key]: persistedUrl,
       },
     };
     saveStoredConfig(updated);
   } catch {
     // ignore
   }
-
-  // Also sync to cloud media items and dispatch event
-  setMediaItem(key, base64Url, 'image/jpeg').catch(() => {});
 };
 
-export const removeStoredPhoto = (key: string): void => {
+export const removeStoredPhoto = async (key: string): Promise<void> => {
   try {
     localStorage.removeItem(`${STORAGE_PREFIX}${key}`);
     localStorage.removeItem(`smokyzone_media_${key}`);
@@ -70,7 +105,7 @@ export const removeStoredPhoto = (key: string): void => {
     // ignore
   }
 
-  removeMediaItem(key).catch(() => {});
+  await removeMediaItem(key);
 };
 
 export const fileToBase64 = (file: File): Promise<string> => {

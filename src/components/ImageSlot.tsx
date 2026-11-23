@@ -12,6 +12,7 @@ interface ImageSlotProps {
   storageKey?: string;
   slotLabel?: string;
   allowUpload?: boolean;
+  priority?: boolean;
 }
 
 export const ImageSlot: React.FC<ImageSlotProps> = ({
@@ -23,6 +24,7 @@ export const ImageSlot: React.FC<ImageSlotProps> = ({
   storageKey,
   slotLabel,
   allowUpload = false,
+  priority = false,
 }) => {
   const [storedUrl, setStoredUrl] = useState<string | null>(null);
   // Source stage: 'stored' | 'src' | 'fallback' | 'emergency'
@@ -45,7 +47,7 @@ export const ImageSlot: React.FC<ImageSlotProps> = ({
         }
         // Async cloud fallback
         getMediaItem(storageKey).then((cloudVal) => {
-          if (isMounted && cloudVal && cloudVal.trim() !== '') {
+          if (isMounted && cloudVal && cloudVal.trim() !== '' && cloudVal !== '/images/bandana_smork.jpg') {
             setStoredUrl(cloudVal);
             setSourceStage('stored');
           }
@@ -143,6 +145,9 @@ export const ImageSlot: React.FC<ImageSlotProps> = ({
       <img
         src={activeSrc}
         alt={alt}
+        loading={priority ? 'eager' : 'lazy'}
+        decoding="async"
+        fetchPriority={priority ? 'high' : 'auto'}
         onError={handleImageError}
         className={className}
       />
@@ -180,7 +185,7 @@ export const ImageSlot: React.FC<ImageSlotProps> = ({
       {isSavedToast && (
         <div className="absolute bottom-3 left-3 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 text-xs font-mono backdrop-blur-sm animate-fadeIn">
           <Check className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Photo saved to website!</span>
+          <span>Photo saved & synced to cloud!</span>
         </div>
       )}
     </div>

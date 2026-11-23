@@ -2,7 +2,7 @@
   "entities": {
     "SiteSettings": {
       "title": "SiteSettings",
-      "description": "Global Smoky Zone configuration including labels, playlist, video clips, and photo references",
+      "description": "Global Smoky Zone configuration including labels, playlist, video clips, projects, thoughts, activity logs, and photo references",
       "type": "object",
       "properties": {
         "labels": {
@@ -17,23 +17,39 @@
           "type": "array",
           "description": "5-second cultural short video clip definitions"
         },
+        "projects": {
+          "type": "array",
+          "description": "Portfolio project items"
+        },
+        "unfilteredThoughts": {
+          "type": "array",
+          "description": "Smork Unfiltered reflection items"
+        },
+        "activityLogs": {
+          "type": "array",
+          "description": "Studio activity log trail"
+        },
         "projectPhotos": {
           "type": "object",
           "description": "Map of project IDs to custom photo URLs"
         },
+        "brandPhotos": {
+          "type": "object",
+          "description": "Map of core brand photo keys to custom URLs"
+        },
         "walkinPhoto": {
           "type": "string",
-          "description": "Primary Walk-In visual portrait URL or Base64"
+          "description": "Primary Walk-In visual portrait URL or Storage download URL"
         },
         "updatedAt": {
           "type": "string",
-          "description": "Timestamp of last modification"
+          "description": "ISO timestamp of last modification"
         }
       }
     },
     "MediaItem": {
       "title": "MediaItem",
-      "description": "Stored media assets such as photos, video clips, and audio tracks",
+      "description": "Stored media asset metadata pointing to Firebase Storage download URLs or legacy chunked payloads",
       "type": "object",
       "properties": {
         "key": {
@@ -42,18 +58,93 @@
         },
         "data": {
           "type": "string",
-          "description": "Base64 data or media URL"
+          "description": "Download URL or legacy Base64 data"
+        },
+        "downloadUrl": {
+          "type": "string",
+          "description": "HTTPS download URL from Firebase Storage"
+        },
+        "storagePath": {
+          "type": "string",
+          "description": "Object path inside Firebase Storage bucket"
         },
         "mimeType": {
           "type": "string",
           "description": "MIME type of the media (image, video, audio)"
+        },
+        "bytes": {
+          "type": "number",
+          "description": "File size in bytes"
+        },
+        "storageProvider": {
+          "type": "string",
+          "description": "Storage backend identifier (firebase_storage or firestore_chunked)"
+        },
+        "isChunked": {
+          "type": "boolean",
+          "description": "Whether legacy Firestore chunking was used"
         },
         "updatedAt": {
           "type": "string",
           "description": "ISO timestamp of update"
         }
       },
-      "required": ["key", "data"]
+      "required": ["key"]
+    },
+    "SystemAdminStatus": {
+      "title": "SystemAdminStatus",
+      "description": "Authoritative owner verification record used by Firestore and Firebase Storage cross-service security rules",
+      "type": "object",
+      "properties": {
+        "owner_registered": {
+          "type": "boolean",
+          "description": "Confirms verified owner registration"
+        },
+        "owner_email": {
+          "type": "string",
+          "description": "Verified owner email (ifeanyinuels32@gmail.com)"
+        },
+        "owner_uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the verified owner"
+        },
+        "lastSignedInEmail": {
+          "type": "string",
+          "description": "Normalized email of last verified Google sign-in"
+        },
+        "lastGoogleSignIn": {
+          "type": "string",
+          "description": "ISO timestamp of last Google sign-in"
+        },
+        "device": {
+          "type": "string",
+          "description": "Device summary string"
+        }
+      },
+      "required": ["owner_registered", "owner_email", "owner_uid"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Audit log item for studio updates",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "details": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "timestamp", "title"]
     }
   },
   "firestore": {
@@ -63,7 +154,15 @@
     },
     "/media_items/{mediaId}": {
       "schema": "MediaItem",
-      "description": "Media uploads for images, video clips, and audio"
+      "description": "Media metadata and Firebase Storage pointers for images, video clips, and audio"
+    },
+    "/system/{docId}": {
+      "schema": "SystemAdminStatus",
+      "description": "Owner metadata and cross-service Storage verification anchor"
+    },
+    "/activity_logs/{logId}": {
+      "schema": "ActivityLog",
+      "description": "Owner-only audit logs"
     }
   }
 }

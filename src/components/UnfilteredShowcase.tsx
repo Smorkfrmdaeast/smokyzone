@@ -16,7 +16,7 @@ import {
   Sparkles,
   Flame,
 } from 'lucide-react';
-import { fileToBase64, setStoredPhoto } from '../utils/photoStorage';
+import { fileToBase64, compressImageFile, setStoredPhoto } from '../utils/photoStorage';
 import { getMediaItem, getStoredConfig } from '../utils/siteStore';
 import { mediaManager } from '../utils/mediaManager';
 
@@ -94,8 +94,10 @@ export const UnfilteredShowcase: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const base64 = await fileToBase64(file);
-        setStoredPhoto('unfiltered_portrait', base64);
+        const base64 = file.type.startsWith('image/')
+          ? await compressImageFile(file)
+          : await fileToBase64(file);
+        await setStoredPhoto('unfiltered_portrait', base64);
         setPhotoVersion((v) => v + 1);
       } catch (err) {
         console.error('Failed to convert photo:', err);

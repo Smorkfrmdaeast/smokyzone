@@ -1,26 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  Lock,
-  KeyRound,
-  Shield,
-  Eye,
-  EyeOff,
+  ShieldCheck,
   AlertCircle,
-  Mail,
-  ArrowRight,
-  Sparkles,
   X,
   CheckCircle2,
   Clock,
-  ShieldAlert,
+  Lock,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Mail,
+  Cloud,
+  ChevronDown,
+  Copy,
 } from 'lucide-react';
 import {
-  checkOwnerAccountStatus,
-  createOwnerAccount,
-  loginOwner,
-  requestPasswordReset,
+  hasOwnerPasscodeConfigured,
+  setupOwnerPasscode,
+  loginOwnerWithPasscode,
+  loginOwnerWithGoogle,
   getRateLimitStatus,
 } from '../utils/authManager';
+import {
+  isUserAdminAuthenticated,
+  hasFirebaseGoogleOwnerSession,
+  OWNER_EMAIL_DISPLAY,
+} from '../utils/siteStore';
 
 interface OwnerAuthModalProps {
   isOpen: boolean;
@@ -29,49 +34,60 @@ interface OwnerAuthModalProps {
 }
 
 export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const [isFirstTimeSetup, setIsFirstTimeSetup] = useState<boolean | null>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [email, setEmail] = useState(OWNER_EMAIL_DISPLAY);
+  const [passcode, setPasscode] = useState('');
+  const [confirmPasscode, setConfirmPasscode] = useState('');
+  const [showPasscode, setShowPasscode] = useState(false);
+  const [showPasscodePanel, setShowPasscodePanel] = useState(false);
+  const [isFirstTimeSetup, setIsFirstTimeSetup] = useState(() => !hasOwnerPasscodeConfigured());
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [unauthorizedHost, setUnauthorizedHost] = useState<string | null>(null);
+  const [copiedHost, setCopiedHost] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [rateLimitSeconds, setRateLimitSeconds] = useState(0);
 
+  const onSuccessRef = useRef(onSuccess);
+  onSuccessRef.current = onSuccess;
+
   useEffect(() => {
-    if (isOpen) {
-      setErrorMsg('');
-      setSuccessMsg('');
-      setIsLoading(true);
+    if (!isOpen) return;
 
-      // Check rate limit
-      const rateLimit = getRateLimitStatus();
-      if (rateLimit.isLocked) {
-        setRateLimitSeconds(rateLimit.remainingSeconds);
-      } else {
-        setRateLimitSeconds(0);
-      }
-
-      // Check owner account status in Firestore / local
-      checkOwnerAccountStatus()
-        .then((status) => {
-          setIsFirstTimeSetup(!status.ownerExists);
-          if (status.ownerEmail) {
-            setEmail(status.ownerEmail);
-          }
-        })
-        .catch(() => {
-          setIsFirstTimeSetup(false);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
+    // Instant entry if already verified
+    if (isUserAdminAuthenticated() || hasFirebaseGoogleOwnerSession()) {
+      console.info('[SmokyZone Auth] OwnerAuthModal detected active verified owner session -> opening Studio');
+      onSuccessRef.current();
+      return;
     }
+
+    setEmail(OWNER_EMAIL_DISPLAY);
+    setPasscode('');
+    setConfirmPasscode('');
+    setShowPasscode(false);
+    setShowPasscodePanel(false);
+    setIsFirstTimeSetup(!hasOwnerPasscodeConfigured());
+    setErrorMsg('');
+    setUnauthorizedHost(null);
+    setCopiedHost(false);
+    setSuccessMsg('');
+
+    const rateLimit = getRateLimitStatus();
+    setRateLimitSeconds(rateLimit.isLocked ? rateLimit.remainingSeconds : 0);
   }, [isOpen]);
 
-  // Rate limit countdown timer
+  // Trigger Studio immediately if auth state updates while modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleAuthReady = () => {
+      if (isUserAdminAuthenticated() || hasFirebaseGoogleOwnerSession()) {
+        onSuccessRef.current();
+      }
+    };
+    window.addEventListener('smokyzone_auth_change', handleAuthReady);
+    return () => window.removeEventListener('smokyzone_auth_change', handleAuthReady);
+  }, [isOpen]);
+
   useEffect(() => {
     if (rateLimitSeconds <= 0) return;
     const interval = window.setInterval(() => {
@@ -88,80 +104,54 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({ isOpen, onClose,
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleGoogleSignIn = async () => {
+    if (isLoading || isGoogleLoading) return;
+    setErrorMsg('');
+    setUnauthorizedHost(null);
+    setSuccessMsg('');
+    setIsGoogleLoading(true);
+
+    try {
+      await loginOwnerWithGoogle({ forceAccountChooser: true });
+      setSuccessMsg(`Signed in as ${OWNER_EMAIL_DISPLAY}! Cloud Firestore & Storage ready.`);
+      onSuccessRef.current();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Google sign-in failed.';
+      setErrorMsg(msg);
+      if (msg.includes('auth/unauthorized-domain') && typeof window !== 'undefined') {
+        setUnauthorizedHost(window.location.hostname);
+        setShowPasscodePanel(true);
+      } else if (msg.includes('popup-blocked')) {
+        setShowPasscodePanel(true);
+      }
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
+  const handlePasscodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (rateLimitSeconds > 0 || isLoading || isGoogleLoading) return;
+
     setErrorMsg('');
     setSuccessMsg('');
-
-    if (rateLimitSeconds > 0) {
-      setErrorMsg(`Too many failed attempts. Please wait ${rateLimitSeconds}s.`);
-      return;
-    }
-
-    if (!email.trim() || !email.includes('@')) {
-      setErrorMsg('Please enter a valid owner email address.');
-      return;
-    }
-
-    // Forgot password flow
-    if (isForgotPassword) {
-      setIsLoading(true);
-      try {
-        await requestPasswordReset(email.trim());
-        setSuccessMsg(`Password reset instructions have been dispatched to ${email}. Check your inbox.`);
-      } catch (err: unknown) {
-        setErrorMsg(err instanceof Error ? err.message : 'Failed to send reset email.');
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // First-time owner registration flow
-    if (isFirstTimeSetup) {
-      if (password.length < 10) {
-        setErrorMsg('Strong password required: minimum 10 characters.');
-        return;
-      }
-      if (password !== confirmPassword) {
-        setErrorMsg('Password confirmation does not match.');
-        return;
-      }
-
-      setIsLoading(true);
-      try {
-        await createOwnerAccount(email.trim(), password);
-        setSuccessMsg('Owner account initialized successfully! Logging you in...');
-        setTimeout(() => {
-          onSuccess();
-        }, 1200);
-      } catch (err: unknown) {
-        setErrorMsg(err instanceof Error ? err.message : 'Account creation failed.');
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // Normal Owner Login flow
-    if (!password) {
-      setErrorMsg('Please enter your owner password.');
-      return;
-    }
-
     setIsLoading(true);
+
     try {
-      await loginOwner(email.trim(), password);
-      setSuccessMsg('Authentication verified. Welcome back, Smork.');
-      setTimeout(() => {
-        onSuccess();
-      }, 700);
+      if (isFirstTimeSetup) {
+        await setupOwnerPasscode(email, passcode, confirmPasscode);
+        setSuccessMsg('Local passcode saved! Opening Owner Studio...');
+      } else {
+        await loginOwnerWithPasscode(email, passcode);
+        setSuccessMsg('Local passcode verified! Opening Owner Studio...');
+      }
+      onSuccessRef.current();
     } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Login failed. Please check your details.');
       const rateLimit = getRateLimitStatus();
       if (rateLimit.isLocked) {
         setRateLimitSeconds(rateLimit.remainingSeconds);
       }
-      setErrorMsg(err instanceof Error ? err.message : 'Authentication failed. Please verify credentials.');
     } finally {
       setIsLoading(false);
     }
@@ -173,181 +163,232 @@ export const OwnerAuthModal: React.FC<OwnerAuthModalProps> = ({ isOpen, onClose,
       aria-modal="true"
       aria-labelledby="auth-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn"
+      onClick={onClose}
     >
-      <div className="relative w-full max-w-md rounded-2xl bg-[#091124] border border-[#1E90FF]/30 p-6 sm:p-8 shadow-2xl shadow-[#1E90FF]/20 text-left">
+      <div
+        className="relative w-full max-w-md rounded-2xl bg-[#091124] border border-[#1E90FF]/30 p-6 sm:p-7 shadow-2xl shadow-[#1E90FF]/20 text-left max-h-[92vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Close Button */}
         <button
+          type="button"
           onClick={onClose}
           aria-label="Close modal"
-          className="absolute top-4 right-4 w-10 h-10 min-w-[44px] min-h-[44px] rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+          className="absolute top-4 right-4 min-w-[44px] min-h-[44px] rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
         >
           <X className="w-4 h-4" />
         </button>
 
-        {/* Lock / Shield Icon */}
-        <div className="w-12 h-12 rounded-xl bg-[#1E90FF]/15 border border-[#1E90FF]/40 text-[#1E90FF] flex items-center justify-center mb-4 shadow-lg shadow-[#1E90FF]/20">
-          <KeyRound className="w-6 h-6" />
+        {/* Owner Shield Icon */}
+        <div className="w-12 h-12 rounded-xl bg-[#1E90FF]/15 border border-[#1E90FF]/40 text-[#1E90FF] flex items-center justify-center mb-4">
+          <Lock className="w-5 h-5" />
         </div>
 
-        <h3 id="auth-modal-title" className="text-xl sm:text-2xl font-black text-white font-['Outfit',sans-serif] tracking-tight mb-1">
-          {isForgotPassword
-            ? 'Reset Owner Password'
-            : isFirstTimeSetup
-            ? 'First-Time Owner Setup'
-            : 'Smoky Zone Studio Access'}
+        <h3
+          id="auth-modal-title"
+          className="text-xl font-bold text-white font-['Outfit',sans-serif] tracking-tight mb-1.5"
+        >
+          Owner Studio Login
         </h3>
 
-        <p className="text-xs text-slate-300 mb-6 leading-relaxed">
-          {isForgotPassword
-            ? 'Enter your registered owner email to receive a secure Firebase password reset link.'
-            : isFirstTimeSetup
-            ? 'Create your private owner account with your email and a strong password (minimum 10 characters). Public sign-up will be disabled permanently once created.'
-            : 'Sign in with your owner credentials to manage the official playlist, upload media, and update site content.'}
+        <p className="text-sm text-slate-300 leading-relaxed mb-5">
+          Sign in with your verified Google account to unlock Owner Studio with live Cloud Firestore &amp; Firebase Storage sync.
         </p>
 
-        {/* Rate Limit Banner */}
-        {rateLimitSeconds > 0 && (
-          <div className="mb-4 p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2 font-mono">
-            <Clock className="w-4 h-4 flex-shrink-0 animate-pulse" />
-            <span>Login rate limited. Please wait {rateLimitSeconds}s before attempting again.</span>
+        {/* Feedback Banners */}
+        {errorMsg && (
+          <div className="mb-4 flex flex-col gap-2 text-rose-300 text-xs p-3 rounded-xl bg-rose-950/50 border border-rose-500/35 leading-relaxed">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-400" />
+              <span>{errorMsg}</span>
+            </div>
+            {unauthorizedHost && (
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-rose-500/20">
+                <span className="font-mono text-[11px] text-white truncate">{unauthorizedHost}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(unauthorizedHost);
+                    setCopiedHost(true);
+                    setTimeout(() => setCopiedHost(false), 2500);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-mono flex items-center gap-1 flex-shrink-0 cursor-pointer"
+                >
+                  <Copy className="w-3 h-3" />
+                  <span>{copiedHost ? 'Copied' : 'Copy Domain'}</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-mono uppercase text-slate-300 mb-1.5 tracking-wider">
-              Owner Email
-            </label>
-            <div className="relative">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (errorMsg) setErrorMsg('');
-                }}
-                placeholder="smork@smokyzone.com"
-                required
-                className="w-full px-4 py-3 rounded-xl bg-[#050811] border border-white/15 text-white text-sm focus:border-[#1E90FF] focus:outline-none transition-colors font-mono tracking-wider"
-              />
-              <Mail className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-            </div>
+        {successMsg && (
+          <div className="mb-4 flex items-center gap-2 text-emerald-300 text-xs p-3 rounded-xl bg-emerald-950/50 border border-emerald-500/35">
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+            <span>{successMsg}</span>
           </div>
+        )}
 
-          {!isForgotPassword && (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-mono uppercase text-slate-300 tracking-wider">
-                  {isFirstTimeSetup ? 'Create Strong Password' : 'Owner Password'}
-                </label>
+        {/* Primary Cloud-Verified Google Login */}
+        <div className="p-4 rounded-xl bg-[#050811] border border-[#1E90FF]/35 space-y-3 mb-4">
+          <div className="flex items-center gap-2 text-[11px] font-mono text-emerald-400 uppercase tracking-wider">
+            <Cloud className="w-3.5 h-3.5" />
+            <span>Full Cloud Firestore &amp; Storage Access</span>
+          </div>
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={isGoogleLoading || isLoading}
+            className="w-full min-h-[46px] py-3 px-4 rounded-xl bg-[#1E90FF] hover:bg-[#1873cc] disabled:opacity-60 text-white text-sm font-semibold transition-all shadow-lg shadow-[#1E90FF]/25 cursor-pointer active:scale-[0.99] flex items-center justify-center gap-2"
+          >
+            <span>
+              {isGoogleLoading
+                ? 'Connecting Google Account...'
+                : `Continue with Google (${OWNER_EMAIL_DISPLAY})`}
+            </span>
+          </button>
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Recommended: authenticates directly to Firebase so audio uploads, photos, and edits save across all devices immediately.
+          </p>
+        </div>
+
+        {/* Secondary Local Passcode Fallback */}
+        <div className="border-t border-white/10 pt-3">
+          <button
+            type="button"
+            onClick={() => setShowPasscodePanel((prev) => !prev)}
+            className="w-full py-2 flex items-center justify-between text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+          >
+            <span>Offline / Local Passcode Fallback</span>
+            <ChevronDown
+              className={`w-4 h-4 transition-transform ${showPasscodePanel ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {showPasscodePanel && (
+            <div className="mt-3 space-y-3.5 animate-fadeIn">
+              {rateLimitSeconds > 0 && (
+                <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2 font-mono">
+                  <Clock className="w-4 h-4 flex-shrink-0" />
+                  <span>Passcode locked. Wait {rateLimitSeconds}s or use Google Sign-In above.</span>
+                </div>
+              )}
+
+              <p className="text-[11px] text-amber-300/90 leading-relaxed bg-amber-950/30 border border-amber-500/25 rounded-lg p-2.5">
+                Note: Local passcode unlocks editing on this browser only. Firebase security rules require Google Sign-In above to publish to Cloud Firestore or Storage.
+              </p>
+
+              <form onSubmit={handlePasscodeSubmit} className="space-y-3">
+                <div>
+                  <label
+                    htmlFor="owner-email"
+                    className="block text-[11px] font-mono text-slate-400 uppercase mb-1.5"
+                  >
+                    Owner Email
+                  </label>
+                  <div className="relative">
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      id="owner-email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      className="w-full min-h-[44px] pl-10 pr-3.5 py-2.5 rounded-xl bg-[#050811] border border-white/10 text-white text-sm font-mono focus:border-[#1E90FF] focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="owner-passcode"
+                    className="block text-[11px] font-mono text-slate-400 uppercase mb-1.5"
+                  >
+                    {isFirstTimeSetup ? 'Create Passcode (min 4 chars)' : 'Owner Passcode'}
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      id="owner-passcode"
+                      type={showPasscode ? 'text' : 'password'}
+                      value={passcode}
+                      onChange={(e) => setPasscode(e.target.value)}
+                      placeholder={isFirstTimeSetup ? 'Enter new passcode' : 'Enter your passcode'}
+                      required
+                      autoComplete={isFirstTimeSetup ? 'new-password' : 'current-password'}
+                      className="w-full min-h-[44px] pl-10 pr-11 py-2.5 rounded-xl bg-[#050811] border border-white/10 text-white text-sm focus:border-[#1E90FF] focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPasscode((prev) => !prev)}
+                      aria-label={showPasscode ? 'Hide passcode' : 'Show passcode'}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      {showPasscode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
                 {isFirstTimeSetup && (
-                  <span className="text-[10px] font-mono text-[#1E90FF]">Min 10 characters</span>
+                  <div>
+                    <label
+                      htmlFor="owner-passcode-confirm"
+                      className="block text-[11px] font-mono text-slate-400 uppercase mb-1.5"
+                    >
+                      Confirm Passcode
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        id="owner-passcode-confirm"
+                        type={showPasscode ? 'text' : 'password'}
+                        value={confirmPasscode}
+                        onChange={(e) => setConfirmPasscode(e.target.value)}
+                        placeholder="Re-enter passcode"
+                        required
+                        autoComplete="new-password"
+                        className="w-full min-h-[44px] pl-10 pr-3.5 py-2.5 rounded-xl bg-[#050811] border border-white/10 text-white text-sm focus:border-[#1E90FF] focus:outline-none"
+                      />
+                    </div>
+                  </div>
                 )}
-              </div>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (errorMsg) setErrorMsg('');
-                  }}
-                  placeholder={isFirstTimeSetup ? 'Minimum 10 characters' : 'Enter your password'}
-                  required
-                  className="w-full px-4 py-3 rounded-xl bg-[#050811] border border-white/15 text-white text-sm focus:border-[#1E90FF] focus:outline-none transition-colors pr-10 font-mono tracking-wider"
-                />
+
+                <button
+                  type="submit"
+                  disabled={isLoading || isGoogleLoading || rateLimitSeconds > 0}
+                  className="w-full min-h-[44px] py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 border border-white/15 disabled:opacity-60 text-white text-xs font-semibold transition-all cursor-pointer"
+                >
+                  {isLoading
+                    ? 'Verifying...'
+                    : isFirstTimeSetup
+                    ? 'Save Local Passcode & Enter'
+                    : 'Unlock with Local Passcode'}
+                </button>
+              </form>
+
+              {!isFirstTimeSetup && (
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors p-1"
+                  onClick={() => {
+                    setIsFirstTimeSetup(true);
+                    setErrorMsg('');
+                    setPasscode('');
+                    setConfirmPasscode('');
+                  }}
+                  className="w-full py-1 text-center text-xs text-slate-400 hover:text-[#1E90FF] transition-colors cursor-pointer"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  Forgot passcode or new device? Set new passcode
                 </button>
-              </div>
-            </div>
-          )}
-
-          {isFirstTimeSetup && !isForgotPassword && (
-            <div>
-              <label className="block text-xs font-mono uppercase text-slate-300 mb-1.5 tracking-wider">
-                Confirm Strong Password
-              </label>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={confirmPassword}
-                onChange={(e) => {
-                  setConfirmPassword(e.target.value);
-                  if (errorMsg) setErrorMsg('');
-                }}
-                placeholder="Re-enter password"
-                required
-                className="w-full px-4 py-3 rounded-xl bg-[#050811] border border-white/15 text-white text-sm focus:border-[#1E90FF] focus:outline-none transition-colors font-mono tracking-wider"
-              />
-            </div>
-          )}
-
-          {/* Feedback Banners */}
-          {errorMsg && (
-            <div className="flex items-center gap-2 text-rose-400 text-xs p-2.5 rounded-lg bg-rose-950/40 border border-rose-500/30 font-mono">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          {successMsg && (
-            <div className="flex items-center gap-2 text-emerald-400 text-xs p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 font-mono">
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              <span>{successMsg}</span>
-            </div>
-          )}
-
-          {!isFirstTimeSetup && (
-            <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsForgotPassword(!isForgotPassword);
-                  setErrorMsg('');
-                  setSuccessMsg('');
-                }}
-                className="text-[#1E90FF] hover:underline cursor-pointer min-h-[44px] flex items-center font-mono"
-              >
-                {isForgotPassword ? '← Back to Owner Login' : 'Forgot password?'}
-              </button>
-              <span className="text-[10px] text-slate-500 font-mono">15m Auto-Logout Active</span>
-            </div>
-          )}
-
-          <div className="pt-2 flex gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 min-h-[44px] py-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading || rateLimitSeconds > 0}
-              className="flex-1 min-h-[44px] py-3 rounded-xl bg-[#1E90FF] hover:bg-[#1873cc] disabled:bg-slate-700 disabled:cursor-not-allowed text-white text-xs font-semibold uppercase tracking-wider transition-all shadow-lg shadow-[#1E90FF]/30 flex items-center justify-center gap-2 cursor-pointer"
-            >
-              {isLoading ? (
-                <span>Verifying...</span>
-              ) : isForgotPassword ? (
-                <span>Send Reset Link</span>
-              ) : isFirstTimeSetup ? (
-                <>
-                  <Shield className="w-3.5 h-3.5" /> Initialize Owner Account
-                </>
-              ) : (
-                <>
-                  <Lock className="w-3.5 h-3.5" /> Sign In To Studio
-                </>
               )}
-            </button>
-          </div>
-        </form>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 pt-3 border-t border-white/10 flex items-center gap-2 text-[11px] text-slate-400">
+          <ShieldCheck className="w-3.5 h-3.5 text-[#1E90FF] flex-shrink-0" />
+          <span>Locked to {OWNER_EMAIL_DISPLAY} · Stays signed in until logout</span>
+        </div>
       </div>
     </div>
   );

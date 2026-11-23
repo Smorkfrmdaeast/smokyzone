@@ -1,71 +1,103 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function ownerPath() {
-      return /databases/$(database)/documents/system/admin_status;
-    }
-
-    function isOwner() {
-      return request.auth != null
-        && exists(ownerPath())
-        && get(ownerPath()).data.owner_uid == request.auth.uid;
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
     }
 
     function isValidId(id) {
-      return id is string
-        && id.size() > 0
-        && id.size() <= 128
-        && id.matches('^[a-zA-Z0-9_-]+$');
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Public website content and media metadata; only the registered owner can change it.
+    function adminStatusDocPath() {
+      return /databases/$(database)/documents/system/admin_status;
+    }
+
+    function hasVerifiedOwnerEmailClaim() {
+      return request.auth != null
+        && ('email_verified' in request.auth.token)
+        && request.auth.token.email_verified == true
+        && ('email' in request.auth.token)
+        && request.auth.token.email is string
+        && request.auth.token.email.lower() == 'ifeanyinuels32@gmail.com';
+    }
+
+    function isRegisteredOwnerUid() {
+      return request.auth != null
+        && exists(adminStatusDocPath())
+        && get(adminStatusDocPath()).data.owner_registered == true
+        && get(adminStatusDocPath()).data.owner_email is string
+        && get(adminStatusDocPath()).data.owner_email.lower() == 'ifeanyinuels32@gmail.com'
+        && get(adminStatusDocPath()).data.owner_uid is string
+        && get(adminStatusDocPath()).data.owner_uid == request.auth.uid
+        && (
+          !('email' in request.auth.token)
+          || hasVerifiedOwnerEmailClaim()
+        );
+    }
+
+    function isOwner() {
+      return hasVerifiedOwnerEmailClaim() || isRegisteredOwnerUid();
+    }
+
+    // Public website content - public read for all visitors, owner-only writes
     match /site_content/{settingId} {
-      allow read: if isValidId(settingId);
-      allow create, update, delete: if isOwner() && isValidId(settingId);
+      allow get: if isValidId(settingId);
+      allow list: if hasVerifiedOwnerEmailClaim();
+      allow create, update: if isOwner()
+        && isValidId(settingId)
+        && request.resource.data is map;
+      allow delete: if isOwner() && isValidId(settingId);
     }
 
+    // Public media metadata/storage pointers - public read for visitor showcase, owner-only writes/deletes
     match /media_items/{mediaId} {
-      allow read: if isValidId(mediaId);
-      allow create, update, delete: if isOwner() && isValidId(mediaId);
+      allow read: if true;
+      allow create, update: if isOwner()
+        && isValidId(mediaId)
+        && request.resource.data is map
+        && (!('key' in request.resource.data) || (request.resource.data.key is string && request.resource.data.key.size() <= 128))
+        && (!('mimeType' in request.resource.data) || (request.resource.data.mimeType is string && request.resource.data.mimeType.size() <= 128));
+      allow delete: if isOwner() && isValidId(mediaId);
     }
 
-    // Private owner record. The first authenticated account claims the single owner slot.
-    match /system/admin_status {
-      allow read: if request.auth != null && resource.data.owner_uid == request.auth.uid;
-      allow create: if request.auth != null
-        && !exists(ownerPath())
-        && request.resource.data.owner_registered == true
-        && request.auth.token.email == 'ifeanyinuels32@gmail.com'
-        && request.resource.data.owner_email == 'ifeanyinuels32@gmail.com'
-        && request.resource.data.owner_uid == request.auth.uid
-        && request.resource.data.keys().hasOnly([
-          'owner_registered', 'owner_uid', 'owner_email', 'createdAt', 'createdDevice'
-        ]);
+    // System configuration (authoritative owner metadata for cross-service Storage verification - strictly owner-only)
+    match /system/{docId} {
+      allow get: if isOwner() && isValidId(docId);
+      allow list: if false;
+      allow create: if isOwner()
+        && isValidId(docId)
+        && (
+          docId != 'admin_status'
+          || (
+            request.resource.data.owner_registered == true
+            && request.resource.data.owner_email is string
+            && request.resource.data.owner_email.lower() == 'ifeanyinuels32@gmail.com'
+            && request.resource.data.owner_uid == request.auth.uid
+          )
+        );
       allow update: if isOwner()
-        && request.resource.data.owner_uid == resource.data.owner_uid
-        && request.resource.data.owner_registered == true;
+        && isValidId(docId)
+        && (
+          docId != 'admin_status'
+          || (
+            request.resource.data.owner_registered == true
+            && request.resource.data.owner_email is string
+            && request.resource.data.owner_email.lower() == 'ifeanyinuels32@gmail.com'
+            && request.resource.data.owner_uid == request.auth.uid
+            && request.resource.data.owner_uid == resource.data.owner_uid
+          )
+        );
       allow delete: if false;
     }
 
-    // Public setup indicator contains only a boolean. It is created atomically with admin_status.
-    match /system/owner_status {
-      allow read: if true;
-      allow create: if request.auth != null
-        && !exists(/databases/$(database)/documents/system/owner_status)
-        && request.resource.data.keys().hasOnly(['owner_registered'])
-        && request.resource.data.owner_registered == true
-        && getAfter(ownerPath()).data.owner_uid == request.auth.uid;
-      allow update, delete: if false;
-    }
-
-    // Activity records are private to the registered owner.
+    // Activity logs (strictly owner-only)
     match /activity_logs/{logId} {
-      allow read, write: if isOwner();
-    }
-
-    // Everything else remains denied.
-    match /{document=**} {
-      allow read, write: if false;
+      allow get: if isOwner() && isValidId(logId);
+      allow list: if hasVerifiedOwnerEmailClaim();
+      allow create, update: if isOwner() && isValidId(logId) && request.resource.data is map;
+      allow delete: if isOwner() && isValidId(logId);
     }
   }
 }

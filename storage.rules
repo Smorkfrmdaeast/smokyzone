@@ -1,24 +1,72 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    function isOwner() {
+    // Default-deny catch-all
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    function isVerifiedOwnerTokenIfPresent() {
+      return !('email' in request.auth.token)
+        || (
+          ('email_verified' in request.auth.token)
+          && request.auth.token.email_verified == true
+          && request.auth.token.email is string
+          && request.auth.token.email.lower() == 'ifeanyinuels32@gmail.com'
+        );
+    }
+
+    // Cross-service owner verification against the named Smoky Zone Firestore database.
+    // Confirms request.auth.uid matches the authoritative system/admin_status owner_uid
+    // (and if token.email is present, it must also be verified ifeanyinuels32@gmail.com).
+    function isFirestoreVerifiedOwner() {
       return request.auth != null
+        && isVerifiedOwnerTokenIfPresent()
+        && firestore.exists(/databases/ai-studio-smokyzone-d5b406ce-4d73-4af4-b06f-7fc6e2d05b4a/documents/system/admin_status)
+        && firestore.get(/databases/ai-studio-smokyzone-d5b406ce-4d73-4af4-b06f-7fc6e2d05b4a/documents/system/admin_status).data.owner_registered == true
+        && firestore.get(/databases/ai-studio-smokyzone-d5b406ce-4d73-4af4-b06f-7fc6e2d05b4a/documents/system/admin_status).data.owner_email is string
+        && firestore.get(/databases/ai-studio-smokyzone-d5b406ce-4d73-4af4-b06f-7fc6e2d05b4a/documents/system/admin_status).data.owner_email.lower() == 'ifeanyinuels32@gmail.com'
         && firestore.get(/databases/ai-studio-smokyzone-d5b406ce-4d73-4af4-b06f-7fc6e2d05b4a/documents/system/admin_status).data.owner_uid == request.auth.uid;
     }
 
-    match /audio/{audioFile} {
-      // Published audio can be streamed by website visitors.
+    // Official Playlist Audio Tracks (public streaming, owner-only upload/replace/delete, max 50MB)
+    match /audio/{allAudio=**} {
       allow read: if true;
+      allow create, update: if isFirestoreVerifiedOwner()
+        && request.resource != null
+        && request.resource.size <= 50 * 1024 * 1024
+        && request.resource.contentType.matches('audio/.*');
+      allow delete: if isFirestoreVerifiedOwner();
+    }
 
-      // Only the registered owner can upload, replace, or delete audio.
-      allow write: if isOwner()
-        && (
-          request.resource == null
-          || (
-            request.resource.size <= 50 * 1024 * 1024
-            && request.resource.contentType.matches('audio/.*')
-          )
-        );
+    // Media Audio Clips (max 50MB)
+    match /media/audio/{allAudio=**} {
+      allow read: if true;
+      allow create, update: if isFirestoreVerifiedOwner()
+        && request.resource != null
+        && request.resource.size <= 50 * 1024 * 1024
+        && request.resource.contentType.matches('audio/.*');
+      allow delete: if isFirestoreVerifiedOwner();
+    }
+
+    // Cultural Short Videos & Walk-In Videos (max 100MB)
+    match /media/videos/{allVideos=**} {
+      allow read: if true;
+      allow create, update: if isFirestoreVerifiedOwner()
+        && request.resource != null
+        && request.resource.size <= 100 * 1024 * 1024
+        && request.resource.contentType.matches('video/.*');
+      allow delete: if isFirestoreVerifiedOwner();
+    }
+
+    // Brand Portraits & Project Images (max 15MB)
+    match /media/images/{allImages=**} {
+      allow read: if true;
+      allow create, update: if isFirestoreVerifiedOwner()
+        && request.resource != null
+        && request.resource.size <= 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isFirestoreVerifiedOwner();
     }
   }
 }
