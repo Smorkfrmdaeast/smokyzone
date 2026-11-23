@@ -1336,19 +1336,68 @@ export const publishCurrentConfigToCloud = async (configToPublish?: SiteConfig):
   }
 
   const targetConfig = configToPublish || getStoredConfig();
-  const payload: SiteConfig = {
-    ...targetConfig,
-    updatedAt: targetConfig.updatedAt || new Date().toISOString(),
+  const uploadInlineMedia = async (key: string, value: string | null | undefined, fallbackMime: string): Promise<string | null | undefined> => {
+    if (!value || !value.startsWith('data:')) return value;
+    const mime = value.match(/^data:([^;,]+)/i)?.[1] || fallbackMime;
+    const result = await setMediaItem(key, value, mime);
+    if (!result.cloudSynced || !result.downloadUrl) {
+      throw new Error(result.warning || `Could not upload ${key} to Firebase Storage.`);
+    }
+    return result.downloadUrl;
   };
 
   updateCloudSyncState({
     status: 'syncing',
-    activeItem: 'Site Configuration',
+    activeItem: 'Preparing media & site configuration',
     error: null,
   });
 
-  const syncStartTime = performance.now();
   try {
+    // Move legacy inline media to Storage before writing the small Firestore config.
+    const [playlist, videoClips, brandPhotoEntries, projectPhotoEntries, projects, walkinPhoto] = await Promise.all([
+      Promise.all(targetConfig.playlist.map(async (track) => ({
+        ...track,
+        audioSrc: await uploadInlineMedia(`audio_track_${track.id}`, track.audioSrc, 'audio/mpeg') as string,
+      }))),
+      Promise.all(targetConfig.videoClips.map(async (clip) => ({
+        ...clip,
+        videoSrc: await uploadInlineMedia(`video_clip_${clip.id}`, clip.videoSrc, 'video/mp4') as string,
+        audioSrc: await uploadInlineMedia(`video_clip_audio_${clip.id}`, clip.audioSrc, 'audio/mpeg') as string,
+        thumbnail: await uploadInlineMedia(`video_clip_thumb_${clip.id}`, clip.thumbnail, 'image/jpeg') as string,
+      }))),
+      Promise.all(Object.entries(targetConfig.brandPhotos || {}).map(async ([key, value]) => [
+        key,
+        await uploadInlineMedia(`brand_${key}`, value, 'image/jpeg') as string,
+      ] as const)),
+      Promise.all(Object.entries(targetConfig.projectPhotos || {}).map(async ([key, value]) => [
+        key,
+        await uploadInlineMedia(`project_photo_${key}`, value, 'image/jpeg') as string,
+      ] as const)),
+      Promise.all(targetConfig.projects.map(async (project) => ({
+        ...project,
+        image: await uploadInlineMedia(`project_photo_${project.id}`, project.image, 'image/jpeg') as string,
+      }))),
+      uploadInlineMedia('walkin_custom_media', targetConfig.walkinPhoto, 'image/jpeg') as Promise<string | null>,
+    ]);
+
+    const payload: SiteConfig = {
+      ...targetConfig,
+      playlist,
+      videoClips,
+      projects,
+      brandPhotos: Object.fromEntries(brandPhotoEntries),
+      projectPhotos: Object.fromEntries(projectPhotoEntries),
+      walkinPhoto,
+      updatedAt: new Date().toISOString(),
+    };
+
+    updateCloudSyncState({
+      status: 'syncing',
+      activeItem: 'Site Configuration',
+      error: null,
+    });
+
+    const syncStartTime = performance.now();
     const docRef = doc(db, 'site_content', 'global_v1');
     await setDoc(docRef, payload);
     const latency = Math.round(performance.now() - syncStartTime);
