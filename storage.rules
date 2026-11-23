@@ -1,16 +1,35 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    function isOwner() {
-      let admin = firestore.get(/databases/ai-studio-smokyzone-d5b406ce-4d73-4af4-b06f-7fc6e2d05b4a/documents/system/admin_status).data;
+    // Storage Rules cross-service lookups only support the default Firestore
+    // database. Smoky Zone uses a named database, so authorize the two
+    // verified Google owner identities directly from the Firebase Auth token.
+    function isApprovedOwnerEmail(email) {
       return request.auth != null
+        && request.auth.token.email_verified == true
+        && email in [
+          'ifeanyinuels32@gmail.com',
+          'nuelsbussiness@gmail.com'
+        ]
         && (
-          admin.owner_uid == request.auth.uid
-          || (admin.keys().hasAny(['owner_uids']) && admin.owner_uids.hasAny([request.auth.uid]))
+          request.auth.token.email == email
+          || (
+            request.auth.token.keys().hasAny(['firebase'])
+            && request.auth.token.firebase.keys().hasAny(['identities'])
+            && request.auth.token.firebase.identities.keys().hasAny(['google.com'])
+            && request.auth.token.firebase.identities['google.com'] is list
+            && request.auth.token.firebase.identities['google.com'].hasAny([email])
+          )
         );
     }
 
-    // Public visitors can view published media. Only registered owner UIDs can write.
+    function isOwner() {
+      return isApprovedOwnerEmail('ifeanyinuels32@gmail.com')
+        || isApprovedOwnerEmail('nuelsbussiness@gmail.com');
+    }
+
+    // Public visitors can view published media. Only the two verified
+    // owner Google accounts can upload, replace, or delete files.
     match /audio/{fileName} {
       allow read: if true;
       allow write: if isOwner()
